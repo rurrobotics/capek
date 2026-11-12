@@ -56,7 +56,7 @@ any two steppers, whether built-in, your own, or shared from another task.
 Actuators are owned directly by the strategy, as in ninja:
 
 ```rust
-join(robot.drivetrain.drive(Mm(160.0)), robot.gripper.open()).await;
+join(robot.drivetrain.drive(160.mm()), robot.gripper.open()).await;
 ```
 
 Dropping a motion future stops the motor immediately (the *hard stop*).
@@ -91,14 +91,14 @@ capek::robot! {
         drivetrain: Drivetrain {
             left:  PioStepper { step: PIN_6,  dir: PIN_5,  pio: PIO1, sm: 0, dma: DMA_CH1 },
             right: PioStepper { step: PIN_27, dir: PIN_28, pio: PIO1, sm: 1, dma: DMA_CH2 },
-            wheel_diameter: Mm(56.0), track: Mm(159.0), steps_per_rev: 400,
+            wheel_diameter: 56.mm(), track: 159.mm(), steps_per_rev: 400,
             pause_on: proximity,
         },
     }
     sensors {
         proximity: Proximity {
             sensor: Ultrasonic { trig: PIN_21, echo: PIN_19 },
-            threshold: Mm(60.0),
+            threshold: 60.mm(),
         },
     }
 }

@@ -27,11 +27,16 @@ may find it useful too. The project overview and design live in
 - Everything outside tests is `no_std`. No heap allocation; use `heapless` when
   a collection is needed.
 - Use `f32`, not `f64`. The RP2040 has no FPU and the RP2350 only has an f32 FPU.
+- Public APIs take quantity types from `capek_core::units` (`Length`, `Angle`)
+  for physical values, never a bare `f32`, so the signature documents the unit.
 - Shared external dependency versions go in `[workspace.dependencies]` and must
   match the versions `embassy-rp` pulls in.
 - Every public item gets rustdoc. Crates use `#![warn(missing_docs)]`.
   Documentation lives in rustdoc and the README; there is no separate docs
   folder.
+- Every public type, trait and function gets a runnable rustdoc example where
+  one makes sense. Modules get an example showing typical use. Examples run as
+  doctests, so keep them compiling.
 - Add unit tests for hardware-independent logic in `capek-core`.
 
 ## Checks
