@@ -1,3 +1,17 @@
 [workspace]
 resolver = "3"
-members = ["capek", "capek-macros"]
+members = ["capek", "capek-core", "capek-macros", "capek-proto"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/rurrobotics/capek"
+
+# Internal crates, plus external versions shared by several crates. External
+# versions must match what embassy-rp pulls in, so the HAL and the core never
+# end up with two copies of embassy-sync or embassy-time.
+[workspace.dependencies]
+capek-core = { path = "capek-core" }
+capek-proto = { path = "capek-proto" }
+capek-macros = { path = "capek-macros" }

@@ -1,3 +1,10 @@
+//! capek: a small robotics framework for Embassy.
+//!
+//! This crate is the chip-facing half of capek. It will re-export everything from
+//! [`capek_core`] and will hold the RP2040/RP2350 drivers that implement the
+//! core capability traits.
+//!
+//! Exactly one chip feature must be enabled: `rp2040` or `rp2350`.
 #![no_std]
 
 #[cfg(not(any(feature = "rp2350", feature = "rp2040")))]

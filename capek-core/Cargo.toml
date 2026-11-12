@@ -1,0 +1,9 @@
+[package]
+name = "capek-core"
+description = "Hardware-independent core of capek: capability traits, motion control, filters and topics."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

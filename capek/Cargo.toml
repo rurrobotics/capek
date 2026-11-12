@@ -1,13 +1,17 @@
 [package]
 name = "capek"
-version = "0.1.0"
-edition = "2024"
+description = "Embassy-based robotics framework: RP2040/RP2350 backend and facade over capek-core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [features]
 rp2350 = ["embassy-rp/rp235xa"]
 rp2040 = ["embassy-rp/rp2040", "dep:portable-atomic"]
 
 [dependencies]
+capek-core.workspace = true
 embassy-rp = { version = "0.10.0", default-features = false }
 portable-atomic = { version = "1.13.1", features = [
     "critical-section",

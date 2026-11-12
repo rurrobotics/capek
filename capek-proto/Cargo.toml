@@ -1,0 +1,14 @@
+[package]
+name = "capek-proto"
+description = "Wire types shared between capek firmware and host-side controllers."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Enables std-only helpers for host-side controllers.
+std = []
+
+[dependencies]
