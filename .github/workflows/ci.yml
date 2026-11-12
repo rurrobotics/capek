@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [stable, dev]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy -p capek-core -p capek-proto -p capek-macros --all-targets
+      - run: cargo test -p capek-core -p capek-proto -p capek-macros
+
+  cross:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: rp2040
+            target: thumbv6m-none-eabi
+          - chip: rp2350
+            target: thumbv8m.main-none-eabihf
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.chip }}
+      - run: cargo clippy -p capek --features ${{ matrix.chip }} --target ${{ matrix.target }}
