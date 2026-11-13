@@ -330,6 +330,57 @@ impl UnitExt for i32 {
     }
 }
 
+/// A scalar value that generic numeric code, such as [`crate::filter`], can
+/// work on: `f32`, [`Length`] and [`Angle`].
+///
+/// The conversion uses the private storage unit, so it is only meaningful as a
+/// round trip: `Q::from_f32(q.to_f32()) == q`. Do not use it to read a value in
+/// a particular unit; use the `as_*` accessors for that.
+///
+/// ```
+/// use capek_core::units::{Length, Quantity, UnitExt};
+///
+/// fn halve<Q: Quantity>(q: Q) -> Q {
+///     Q::from_f32(q.to_f32() / 2.0)
+/// }
+///
+/// assert_eq!(halve(10.mm()), 5.mm());
+/// assert_eq!(halve(3.0_f32), 1.5);
+/// ```
+pub trait Quantity: Copy {
+    /// The value in this type's storage unit.
+    fn to_f32(self) -> f32;
+    /// Builds a value from a number in this type's storage unit.
+    fn from_f32(v: f32) -> Self;
+}
+
+impl Quantity for f32 {
+    fn to_f32(self) -> f32 {
+        self
+    }
+    fn from_f32(v: f32) -> Self {
+        v
+    }
+}
+
+impl Quantity for Length {
+    fn to_f32(self) -> f32 {
+        self.0
+    }
+    fn from_f32(v: f32) -> Self {
+        Self(v)
+    }
+}
+
+impl Quantity for Angle {
+    fn to_f32(self) -> f32 {
+        self.0
+    }
+    fn from_f32(v: f32) -> Self {
+        Self(v)
+    }
+}
+
 // The zero-cost claim in the module docs, checked at compile time.
 const _: () = assert!(core::mem::size_of::<Length>() == core::mem::size_of::<f32>());
 const _: () = assert!(core::mem::size_of::<Angle>() == core::mem::size_of::<f32>());
