@@ -769,7 +769,8 @@ as work progresses.
 - [x] `docs: require rustdoc examples and quantity types`
 - [x] `feat(core): add signal filters`
 - [x] `feat(core): add PID controller`
-- [ ] `docs: add blueprint and restructure the design overview`
+- [x] `docs: add blueprint and restructure the design overview`
+- [x] `docs: separate driver blocks in robot! configuration`
 - [ ] `feat(core): add Speed, Acceleration and Jerk quantities`
 - [ ] `feat(core): add Ramp motion profile`
 - [ ] `feat(core): add SCurve motion profile`
