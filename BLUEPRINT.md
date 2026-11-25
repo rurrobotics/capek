@@ -460,6 +460,7 @@ pub trait Profile: Clone {
     type Plan: Plan;
     fn plan(&self, from: State, distance: Length, end_speed: Speed) -> Self::Plan;
     fn stop(&self, from: State) -> Self::Plan;     // shortest stop the limits allow
+    fn set_resolution(&mut self, resolution: Length) {}   // used by Fast profiles
 }
 
 pub trait Plan: Clone {
@@ -502,6 +503,11 @@ Each profile is its own type with only the parameters it needs:
   replan.
 - Profiles plan between non-zero speeds, which the route planner needs. The
   recurrences start from the step index that matches the start speed.
+- The path coordinate only moves forward: distances and speeds are
+  non-negative, and the path decides which way each axis turns.
+- A plan always ends exactly at its distance. When the limits do not allow the
+  requested end speed within that distance, it ends at the closest speed they
+  allow, so a move never overshoots its target.
 
 Ninja's two profiles map to `FastTrapezoid` and `FastPower { p: 3.0 }`. Ninja's
 `max_speed` for its power profile is the asymptote `v∞`, so the same motion
@@ -794,7 +800,7 @@ as work progresses.
 - [x] `docs: add blueprint and restructure the design overview`
 - [x] `docs: separate driver blocks in robot! configuration`
 - [x] `feat(core): add Speed, Acceleration and Jerk quantities`
-- [ ] `feat(core): add profile traits and Trapezoid profile`
+- [x] `feat(core): add profile traits and Trapezoid profile`
 - [ ] `feat(core): add Constant profile`
 - [ ] `feat(core): add FastTrapezoid profile`
 - [ ] `feat(core): add Power profile`

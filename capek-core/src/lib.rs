@@ -11,5 +11,6 @@
 #![warn(missing_docs)]
 
 pub mod filter;
+pub mod motion;
 pub mod pid;
 pub mod units;
