@@ -226,9 +226,9 @@ pub type Ultrasonic = capek_core::Ultrasonic<<P as Platform>::Output, <P as Plat
 pub type Drivetrain<L = Stepper, R = Stepper>  = capek_core::Drivetrain<L, R>;
 ```
 
-- `Stepper` means a step/dir stepper with this platform's driver.
-- `Stepper<FourWire>` selects the four-wire driver.
-- `Stepper<my::Tmc2209>` uses your own driver, with no other change.
+- `Stepper` is generic over its driver. Which driver it gets is decided by the
+  `driver:` block in `robot!` (see below); in hand-written code it is
+  `Stepper<StepDir>`, `Stepper<FourWire>` or `Stepper<my::Tmc2209>`.
 - Exactly one platform feature may be enabled; `capek` keeps its compile-time
   check for that.
 
@@ -237,21 +237,39 @@ struct have nameable types.
 
 ### Configuring a component and its driver
 
-A block in `robot!` mixes component fields and driver fields:
+Component fields and driver fields are visually separate. Component fields
+sit directly in the block; the driver is a nested `driver:` block whose name
+selects the driver kind:
 
 ```rust
-left: Stepper { step: PIN_6, dir: PIN_5, en: PIN_10, steps_per_rev: 400, invert: true },
+left: Stepper {
+    steps_per_rev: 400,
+    invert: true,
+    driver: StepDir { step: PIN_6, dir: PIN_5, en: PIN_10 },
+},
+conveyor: Stepper {
+    steps_per_rev: 2048,
+    driver: FourWire { coils: [PIN_2, PIN_3, PIN_4, PIN_5], mode: HalfStep },
+},
+lift: Stepper {
+    steps_per_rev: 200,
+    driver: StepDir { step: PIN_7, dir: PIN_8, pio: PIO1, sm: 3 },
+},
 ```
 
-The macro turns each field into one builder call. A component's builder
-dereferences to its driver's builder, so Rust's method lookup routes every
-field to its owner: `steps_per_rev` and `invert` to the component, `step`,
-`dir` and `en` to the driver. A misspelt field, or one the selected platform
-does not have, is a normal compile error pointing at that field.
-
-Pins are platform-specific anyway, so drivers may also accept optional
-platform-only fields. On RP these are `pio`, `sm` and `dma`. When they are left
-out, the platform allocates the resources itself.
+- `StepDir` and `FourWire` are the facade's names for the selected platform's
+  drivers. A custom driver is just another block, such as
+  `driver: my::Tmc2209 { uart: UART0 }`.
+- The macro builds the driver from its block, then passes it to the
+  component together with the component's own fields. An unknown field is a
+  normal compile error pointing at that field.
+- Pins are platform-specific anyway, so drivers may also accept optional
+  platform-only fields. On RP these are `pio`, `sm` and `dma`, and they belong
+  inside the `driver:` block. When they are left out, the platform allocates
+  the resources itself.
+- Components with a single obvious driver, such as `Servo`, `Button` or
+  `Ultrasonic`, still use a `driver:` block, so the split looks the same
+  everywhere.
 
 ### The RP platform
 
@@ -399,7 +417,7 @@ pub enum Trigger<Q> { Below(Q), Above(Q), Changed, Error, Every }
 
 ```rust
 proximity: Proximity {
-    sensor: Ultrasonic { trig: PIN_21, echo: PIN_19 },
+    sensor: Ultrasonic { driver: Hcsr04 { trig: PIN_21, echo: PIN_19 } },
     filter: Ema::new(0.2),
     period: 60.ms(),
     on: {
@@ -590,26 +608,39 @@ capek::robot! {
     components {
         drivetrain: Drivetrain {
             commands: drive,
-            left:  Stepper { step: PIN_6,  dir: PIN_5,  en: PIN_10, steps_per_rev: 400 },
-            right: Stepper { step: PIN_27, dir: PIN_28, en: PIN_12, steps_per_rev: 400, invert: true },
+            left: Stepper {
+                steps_per_rev: 400,
+                driver: StepDir { step: PIN_6, dir: PIN_5, en: PIN_10 },
+            },
+            right: Stepper {
+                steps_per_rev: 400,
+                invert: true,
+                driver: StepDir { step: PIN_27, dir: PIN_28, en: PIN_12 },
+            },
             geometry: Differential::new(56.mm(), 159.mm()),
             profile: SCurve { max_speed: 400.mm_per_s(), accel: 1200.mm_per_s2(), jerk: 8000.mm_per_s3() },
             strategy: Buffered { horizon: 20.ms() },
         },
         gripper: Gripper {                           // no commands: a direct field of the robot
-            servo: Servo { pin: PIN_15, min_pulse: 320.us(), max_pulse: 1200.us(), period: 1786.us() },
+            servo: Servo {
+                min_pulse: 320.us(), max_pulse: 1200.us(), period: 1786.us(),
+                driver: PwmServo { pin: PIN_15 },
+            },
             open: 50.deg(),
             close: 153.deg(),
         },
         extension: LinearAxis {                      // no commands: a direct field of the robot
-            stepper: Stepper { step: PIN_17, dir: PIN_18, en: PIN_13, steps_per_rev: 400 },
-            home: Button { pin: PIN_8, pull: Up },
+            stepper: Stepper {
+                steps_per_rev: 400,
+                driver: StepDir { step: PIN_17, dir: PIN_18, en: PIN_13 },
+            },
+            home: Button { driver: Input { pin: PIN_8, pull: Up } },
         },
     }
 
     sensors {
         proximity: Proximity {
-            sensor: Ultrasonic { trig: PIN_21, echo: PIN_19 },
+            sensor: Ultrasonic { driver: Hcsr04 { trig: PIN_21, echo: PIN_19 } },
             filter: Ema::new(0.2),
             period: 60.ms(),
             on: {
@@ -618,7 +649,10 @@ capek::robot! {
                 Error          => drive.send(DriveCommand::Stop),
             },
         },
-        starter: Starter { input: Button { pin: PIN_16, pull: Up }, active: Low },
+        starter: Starter {
+            active: Low,
+            input: Button { driver: Input { pin: PIN_16, pull: Up } },
+        },
     }
 
     link: UsbSerial {},
@@ -630,12 +664,12 @@ capek::robot! {
 A field value is one of three things, decided by its shape:
 
 - A nested `Type { .. }` block is a child component, built first and passed to
-  its parent. `Type` may carry a driver, such as `Stepper<FourWire> { .. }`.
+  its parent. A `driver: Kind { .. }` block is the component's driver.
 - An all-caps identifier such as `PIN_6`, `PIO1` or `DMA_CH1` is a peripheral
   and becomes `p.NAME`.
 - Anything else is an ordinary Rust expression.
 
-Every field becomes a builder call, routed to the component or its driver as
+Driver fields go in the `driver:` block, component fields beside it, as
 described in [Configuring a component and its driver](#configuring-a-component-and-its-driver).
 Defaults fill in whatever is not listed.
 
@@ -686,9 +720,9 @@ replaces ninja's `include!` of the firmware's packet file.
 
 | You want to… | Do this |
 |---|---|
-| Use your own stepper or servo driver | Implement `StepperDriver` or `ServoDriver` and its builder, then write `Stepper<YourDriver> { .. }` in `robot!`. |
+| Use your own stepper or servo driver | Implement `StepperDriver` or `ServoDriver` and `Build`, then write `driver: YourDriver { .. }` in `robot!`. |
 | Use your own profile, path or filter | Implement `Profile` and `Plan`, `Path<N>`, or `Filter`. |
-| Write your own component | A struct generic over driver traits or other components, with a builder. |
+| Write your own component | A struct generic over driver traits or other components, implementing `Build`. |
 | Make a component commandable | Define a command enum that implements `Command`, and implement `Module` reading from a `CommandMutex`. |
 | Change arbitration | Implement `Policy` and set `policy: YourPolicy` on the mutex. |
 | React to sensor events | Use callbacks in `on`, or implement `Module` and publish your own topics. |

@@ -54,9 +54,9 @@ The full architecture and the commit-by-commit plan of action are in
   such as steps per revolution or servo calibration.
 - A **driver** is the hardware primitive behind a component, supplied by the
   selected platform. On RP, a `Stepper` is driven through PIO and DMA.
-- Steppers come in two wirings: `Stepper` uses a step/dir driver, and
-  `Stepper<FourWire>` drives four coil pins directly. `Stepper<YourDriver>`
-  plugs in your own driver.
+- In a `robot!` block the driver sits in its own `driver:` block, visually
+  separate from the component's fields. Steppers come in two wirings,
+  `StepDir` and `FourWire`, and `driver: YourDriver { .. }` plugs in your own.
 - Each platform crate implements one `Platform` trait naming its drivers, so
   the compiler checks that a platform is complete.
 
@@ -128,13 +128,20 @@ capek::robot! {
     components {
         drivetrain: Drivetrain {
             commands: drive,
-            left:  Stepper { step: PIN_6,  dir: PIN_5,  steps_per_rev: 400 },
-            right: Stepper { step: PIN_27, dir: PIN_28, steps_per_rev: 400, invert: true },
+            left: Stepper {
+                steps_per_rev: 400,
+                driver: StepDir { step: PIN_6, dir: PIN_5 },
+            },
+            right: Stepper {
+                steps_per_rev: 400,
+                invert: true,
+                driver: StepDir { step: PIN_27, dir: PIN_28 },
+            },
             geometry: Differential::new(56.mm(), 159.mm()),
             profile: SCurve { max_speed: 400.mm_per_s(), accel: 1200.mm_per_s2(), jerk: 8000.mm_per_s3() },
         },
         gripper: Gripper {                    // no commands: a direct field of the robot
-            servo: Servo { pin: PIN_15 },
+            servo: Servo { driver: PwmServo { pin: PIN_15 } },
             open: 50.deg(),
             close: 153.deg(),
         },
@@ -142,7 +149,7 @@ capek::robot! {
 
     sensors {
         proximity: Proximity {
-            sensor: Ultrasonic { trig: PIN_21, echo: PIN_19 },
+            sensor: Ultrasonic { driver: Hcsr04 { trig: PIN_21, echo: PIN_19 } },
             filter: Ema::new(0.2),
             on: {
                 Below(60.mm()) => drive.send(DriveCommand::Stop),
