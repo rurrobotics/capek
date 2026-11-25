@@ -1,8 +1,9 @@
 # AGENTS.md
 
 Guidance for AI coding agents working in this repository. Human contributors
-may find it useful too. The project overview and design live in
-[README.md](README.md); read that first.
+may find it useful too. The project overview lives in [README.md](README.md),
+and the full architecture and plan of action in [BLUEPRINT.md](BLUEPRINT.md).
+Read both before working.
 
 ## Workflow
 
@@ -32,8 +33,9 @@ may find it useful too. The project overview and design live in
 - Shared external dependency versions go in `[workspace.dependencies]` and must
   match the versions `embassy-rp` pulls in.
 - Every public item gets rustdoc. Crates use `#![warn(missing_docs)]`.
-  Documentation lives in rustdoc and the README; there is no separate docs
-  folder.
+  Documentation lives in rustdoc, the README and BLUEPRINT.md; there is no
+  separate docs folder. Keep BLUEPRINT.md in sync when a design decision
+  changes, and tick off its plan of action as commits land.
 - Every public type, trait and function gets a runnable rustdoc example where
   one makes sense. Modules get an example showing typical use. Examples run as
   doctests, so keep them compiling.

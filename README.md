@@ -14,111 +14,160 @@ control come from the framework.
 
 ## Goals
 
-- **Multiple boards.** RP2040 and RP2350 first. Other chip families can follow
-  by adding a backend, without touching components.
+- **Multiple boards.** RP2040 and RP2350 first. Each platform is its own crate,
+  selected with a feature on `capek`. Switching platform changes pins and the
+  feature flag, not the robot's structure or strategy.
 - **Plug and play.** A `robot!` block maps pins to drivers and drivers to
   components. The macro generates the setup code.
 - **Easy to override.** Every driver, component and motion profile is a plain
   type behind a trait. Your own types slot in the same way the built-in ones do.
 - **Little abstraction in user code.** Strategies are ordinary `async fn`s that
   call methods on components and combine them with `join` and `select`.
+- **Smooth, interruptible motion.** S-curve profiles, curved routes through
+  waypoints, and moves that can be paused by a sensor and still finish.
 
 ## Crates
 
 | Crate | Purpose | Builds on host |
 |---|---|---|
-| `capek-core` | Capability traits, motion control, filters, components, topics. No chip HAL. | yes |
-| `capek` | RP2040/RP2350 drivers implementing the core traits. Re-exports `capek-core`. | no |
+| `capek` | The crate you depend on. Re-exports everything; a feature such as `rp2040` selects the platform. | no |
+| `capek-core` | Components, motion control, filters, command mutexes, driver traits. No chip HAL. | yes |
+| `capek-rp` | RP2040/RP2350 platform: the drivers behind the components. | no |
 | `capek-macros` | `robot!` and `#[capek::main]`. | yes |
 | `capek-proto` | Wire types shared by the firmware and host-side controllers. | yes |
 
-`capek-core` is deliberately free of `embassy-rp`. Motion math, filters and
+`capek-core` is deliberately free of any chip HAL. Motion math, filters and
 components can be unit-tested on a PC, and a new chip family only needs a new
-backend.
+platform crate.
 
 ## Design
 
-### Drivers, components, robot
+The full architecture and the commit-by-commit plan of action are in
+[BLUEPRINT.md](BLUEPRINT.md). This section is the short version.
 
-- A **driver** talks to hardware, such as a PIO stepper, a servo or an
-  ultrasonic sensor. It implements a capability trait like `Stepper`, `Servo`
-  or `DistanceSensor`.
-- A **component** is a mechanism built from drivers, such as a differential
-  drivetrain, a gripper or a homed linear axis. It is generic over the
-  capability traits, so it accepts any driver that implements them.
-- The **robot** struct owns the components. Your strategy borrows it.
+### Components and drivers
 
-Components nest through traits: `Drivetrain<L: Stepper, R: Stepper>` works with
-any two steppers, whether built-in, your own, or shared from another task.
+- A **component** is what you write in a `robot!` block: `Stepper`, `Servo`,
+  `Button`, `Ultrasonic`, and mechanisms built from them, such as a
+  `Drivetrain` from two `Stepper`s or a `Gripper` from a `Servo`. Components
+  are platform-neutral and hold the logic that does not depend on hardware,
+  such as steps per revolution or servo calibration.
+- A **driver** is the hardware primitive behind a component, supplied by the
+  selected platform. On RP, a `Stepper` is driven through PIO and DMA.
+- Steppers come in two wirings: `Stepper` uses a step/dir driver, and
+  `Stepper<FourWire>` drives four coil pins directly. `Stepper<YourDriver>`
+  plugs in your own driver.
+- Each platform crate implements one `Platform` trait naming its drivers, so
+  the compiler checks that a platform is complete.
 
 ### Runtime model
 
-Actuators are owned directly by the strategy, as in ninja:
+There are three kinds of parts at runtime:
+
+- **Owned components** are declared without a command mutex. They are direct
+  fields of the robot your `main` receives, and your strategy calls them
+  directly. Dropping a motion future stops the motor immediately.
+- **Commanded components** run as their own task. They are driven through a
+  **command mutex** declared at the top of the `robot!` block. The strategy, a
+  sensor and the communication link can all send commands to the same mutex.
+- **Sensors** run as tasks. They publish their latest reading and fire
+  **trigger callbacks**, for example when a distance drops below a threshold.
 
 ```rust
-join(robot.drivetrain.drive(160.mm()), robot.gripper.open()).await;
+async fn game(r: &mut Ninja) {
+    join(r.drive.forward(160.mm()), r.gripper.open()).await;
+    r.drive.turn((-90).deg()).await;
+    r.drive.follow(Route::from_slice(&[
+        Waypoint::at(600.mm(), 0.mm()),                     // straight segment
+        Waypoint::with_slope(900.mm(), 300.mm(), 90.deg()), // smooth curve into a heading
+    ])).await;
+}
 ```
 
-Dropping a motion future stops the motor immediately (the *hard stop*).
-
-Only things that genuinely run on their own become Embassy tasks: sensors that
-sample continuously, the communication link, and any component you explicitly
-mark as shared. Those tasks publish typed **topics** (built on `embassy-sync`)
-that the strategy can wait on, for example "proximity is close".
+Commands are enums with fields, such as `Stop`, `Start`, `Forward(Length)` or
+`Follow(Route)`. How competing writers are resolved is configurable per mutex.
+The default gives every writer its own hold: if the proximity sensor sends
+`Stop`, the robot decelerates and waits, and only the proximity sensor's
+`Start` lets it continue. The interrupted move then finishes its full
+distance.
 
 ### Motion control
 
-Steppers receive their step timing from a **step source**, streamed to the
-hardware in small chunks. The RP backend uses PIO and DMA, so pulse timing
-never depends on the CPU. Three sources are planned:
+Motion is split into three independent choices:
 
-| Source | How it works | Pause and resume | Change speed mid-move |
-|---|---|---|---|
-| `Ramp` (default) | The acceleration ramp is precomputed once per profile and indexed per step. | yes | yes |
-| `Realtime` | Speed is integrated at every step. | yes | yes, including the profile itself |
-| `Table` | Replays a delay table you supply, ninja style. | no | no |
+- **Profile:** how speed changes along the path. `Ramp` comes in four shapes
+  (`Linear`, `EaseIn`, `EaseOut`, `EaseInOut`) with exact or fast computation.
+  `SCurve` limits jerk for the smoothest motion.
+- **Path:** where each wheel should be. Straight moves, in-place turns, and
+  routes through **waypoints**. A segment between waypoints is straight,
+  unless the waypoints carry a slope (a heading), in which case the robot
+  follows a smooth curve through them. Speed is limited automatically on tight
+  curves, so neither wheel exceeds its limits.
+- **Step strategy:** when step timings are computed.
 
-With `Ramp` and `Realtime`, a running move can be paused, for example by a
-proximity sensor. The motors decelerate, wait, accelerate again and still finish
-the full distance.
+| Strategy | How it works |
+|---|---|
+| `Buffered` (default) | Generates a short window ahead and discards the unsent part when a command changes the motion. |
+| `Realtime` | Computes each step just before the hardware needs it. |
+| `Precomputed` | Computes the whole move before it starts. |
+
+Step timings are streamed to the hardware. The RP backend uses PIO and DMA,
+so pulse timing never depends on the CPU, and both wheels stay synchronised
+in time even on curves.
 
 ### The `robot!` block (planned)
 
 ```rust
 capek::robot! {
     name: Ninja,
+
+    commands {
+        drive: DriveCommand,
+    }
+
     components {
         drivetrain: Drivetrain {
-            left:  PioStepper { step: PIN_6,  dir: PIN_5,  pio: PIO1, sm: 0, dma: DMA_CH1 },
-            right: PioStepper { step: PIN_27, dir: PIN_28, pio: PIO1, sm: 1, dma: DMA_CH2 },
-            wheel_diameter: 56.mm(), track: 159.mm(), steps_per_rev: 400,
-            pause_on: proximity,
+            commands: drive,
+            left:  Stepper { step: PIN_6,  dir: PIN_5,  steps_per_rev: 400 },
+            right: Stepper { step: PIN_27, dir: PIN_28, steps_per_rev: 400, invert: true },
+            geometry: Differential::new(56.mm(), 159.mm()),
+            profile: SCurve { max_speed: 400.mm_per_s(), accel: 1200.mm_per_s2(), jerk: 8000.mm_per_s3() },
+        },
+        gripper: Gripper {                    // no commands: a direct field of the robot
+            servo: Servo { pin: PIN_15 },
+            open: 50.deg(),
+            close: 153.deg(),
         },
     }
+
     sensors {
         proximity: Proximity {
             sensor: Ultrasonic { trig: PIN_21, echo: PIN_19 },
-            threshold: 60.mm(),
+            filter: Ema::new(0.2),
+            on: {
+                Below(60.mm()) => drive.send(DriveCommand::Stop),
+                Above(80.mm()) => drive.send(DriveCommand::Start),
+            },
         },
     }
 }
 ```
 
 Uppercase identifiers such as `PIN_6` are peripherals. Nested `Type { .. }`
-blocks are child drivers. Everything else is an ordinary Rust expression.
+blocks are child components. Everything else is an ordinary Rust expression.
+Platform resources such as PIO state machines are allocated automatically.
 Everything the macro generates is public API, so you can also write the setup
 by hand.
 
 ## Roadmap
 
 - [x] **M0** Workspace scaffold and CI
-- [ ] **M1** `capek-core`: traits, step sources, profiles, filters, kinematics
-- [ ] **M2** RP drivers: PIO stepper, servo, ultrasonic, GPIO
-- [ ] **M3** Components: drivetrain, linear axis, gripper, proximity, starter
+- [ ] **M1** `capek-core`: units, filters, PID, profiles, waypoint routes, step generation, platform contract, base components, triggers
+- [ ] **M2** RP platform crate: step/dir and four-wire steppers, servos, GPIO
+- [ ] **M3** Command mutexes, step strategies and components
 - [ ] **M4** `robot!` and `#[capek::main]`
 - [ ] **M5** Link: transport trait, USB serial, `capek-proto`
 - [ ] **M6** Port ninja to capek
-- [ ] **M7** Shared components as tasks
 
 ## Development
 
