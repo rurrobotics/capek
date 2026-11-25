@@ -11,4 +11,5 @@
 #![warn(missing_docs)]
 
 pub mod filter;
+pub mod pid;
 pub mod units;
