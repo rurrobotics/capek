@@ -95,9 +95,10 @@ distance.
 
 Motion is split into three independent choices:
 
-- **Profile:** how speed changes along the path. `Ramp` comes in four shapes
-  (`Linear`, `EaseIn`, `EaseOut`, `EaseInOut`) with exact or fast computation.
-  `SCurve` limits jerk for the smoothest motion.
+- **Profile:** how speed changes along the path. `Trapezoid`, `Power` (eases
+  into cruise) and `Sine` (smooth acceleration), with `FastTrapezoid` and
+  `FastPower` as cheap per-step versions; `SCurve` limits jerk for the
+  smoothest motion, and `Constant` skips ramps entirely.
 - **Path:** where each wheel should be. Straight moves, in-place turns, and
   routes through **waypoints**. A segment between waypoints is straight,
   unless the waypoints carry a slope (a heading), in which case the robot

@@ -99,7 +99,13 @@ capek-core/src/
 │   ├── mod.rs        CommandMutex, Writer, Command, Status
 │   └── policy.rs     Policy; PerWriterHold, LastWins, Priority
 ├── motion/
-│   ├── profile.rs    Profile, Plan, State; Ramp, SCurve
+│   ├── profile/
+│   │   ├── mod.rs    Profile, Plan, State
+│   │   ├── constant.rs Constant
+│   │   ├── trapezoid.rs Trapezoid, FastTrapezoid
+│   │   ├── power.rs  Power, FastPower
+│   │   ├── sine.rs   Sine
+│   │   └── scurve.rs SCurve
 │   ├── kinematics.rs Differential, Pose
 │   ├── path.rs       Path<N>; Line, Turn
 │   ├── route.rs      Waypoint, Route, Hermite segments
@@ -462,28 +468,44 @@ pub trait Plan: Clone {
 }
 ```
 
-| Profile | Acceleration phase |
-|---|---|
-| `Ramp { shape: Linear }` | constant acceleration, a trapezoid |
-| `Ramp { shape: EaseIn { p } }` | soft when leaving or reaching rest |
-| `Ramp { shape: EaseOut { p } }` | soft when joining or leaving cruise |
-| `Ramp { shape: EaseInOut { p } }` | soft at both ends |
-| `SCurve { max_speed, accel, jerk }` | jerk-limited, seven phases |
+Each profile is its own type with only the parameters it needs:
 
-- Every `Ramp` also has `max_speed` and `accel`, and `p` sets how strongly the
-  eased ends curve. Deceleration mirrors acceleration.
-- `compute: Exact` evaluates the profile in time, in closed form where one
-  exists and by fine numeric integration otherwise.
-- `compute: Fast` runs a cheap per-step recurrence (David Austin's method)
-  inside `advance`. It avoids square roots and powers per sample, which matters
-  on the RP2040, at the cost of a small approximation.
+| Profile | Speed change | Computed |
+|---|---|---|
+| `Constant { speed }` | none: jumps straight to `speed` and stops dead | closed form |
+| `Trapezoid { max_speed, accel }` | constant acceleration | closed form |
+| `FastTrapezoid { max_speed, accel }` | constant acceleration | per-step recurrence |
+| `Power { max_speed, accel, p }` | strong at rest, easing into cruise | numeric integration |
+| `FastPower { max_speed, accel, p }` | strong at rest, easing into cruise | per-step recurrence |
+| `Sine { max_speed, accel }` | acceleration rises and falls as a half sine | closed form |
+| `SCurve { max_speed, accel, jerk }` | jerk-limited, seven phases | closed form |
+
+- `max_speed` is the cruise speed the profile actually reaches, and `accel`
+  is the peak acceleration. Deceleration mirrors acceleration.
+- `Constant` suits motors that can start at full speed, such as a 28BYJ-48,
+  and tests.
+- `Power` follows ninja's power curve: speed over distance is
+  `v = v∞·√(u / (1 + u^(p−1))^(1/(p−1)))` with `u = s·2·accel / v∞²`. It
+  starts at full `accel` and eases into cruise; larger `p` eases later and
+  more sharply. The curve only approaches `v∞`, so, like ninja, the ramp ends
+  at `u = (p + 2) / 2`, and `v∞` is chosen so that this point is `max_speed`.
+- `Sine` has no acceleration jumps at the ends of a ramp, without the cost
+  of planning an S-curve.
+- The `Fast` profiles run David Austin's per-step recurrence, which avoids
+  square roots per sample. They step through the curve in distance increments
+  of `resolution`, which the parent component sets from its geometry through
+  `Profile::set_resolution` (one wheel microstep for a `Drivetrain`); the
+  method does nothing on the other profiles. `advance` interpolates between
+  increments.
 - `State` includes acceleration, so `stop()` works from any point, including
   the middle of an S-curve ramp. That is what lets every profile pause and
   replan.
-- Profiles plan between non-zero speeds, which the route planner needs.
+- Profiles plan between non-zero speeds, which the route planner needs. The
+  recurrences start from the step index that matches the start speed.
 
-Ninja's two profiles map to `Ramp { shape: Linear, compute: Fast }` and
-`Ramp { shape: EaseOut { p: 3.0 }, compute: Fast }`.
+Ninja's two profiles map to `FastTrapezoid` and `FastPower { p: 3.0 }`. Ninja's
+`max_speed` for its power profile is the asymptote `v∞`, so the same motion
+needs `max_speed` set to about 0.96 times ninja's value when `p` is 3.
 
 ### Paths
 
@@ -738,8 +760,8 @@ replaces ninja's `include!` of the firmware's packet file.
 | `actuators/drivetrain.rs` | `Drivetrain`, combining two steppers with a profile, path and step strategy |
 | `actuators/extension.rs` | `LinearAxis` |
 | `actuators/gripper.rs` | `Gripper` |
-| `profiles/trapezoid.rs` | `Ramp { shape: Linear, compute: Fast }` |
-| `profiles/power.rs` | `Ramp { shape: EaseOut { p: 3.0 }, compute: Fast }` |
+| `profiles/trapezoid.rs` | `FastTrapezoid` |
+| `profiles/power.rs` | `FastPower { p: 3.0 }`, with `max_speed` as the speed actually reached |
 | whole-move delay tables | the `Precomputed` strategy, or `run_table` |
 | `sensors/ultrasonic.rs` | the `Ultrasonic` component, waiting on edges instead of spinning |
 | `sensors/proximity.rs` and the aborting `select` | `Proximity` triggers sending `Stop` and `Start`; the move finishes after release |
@@ -772,8 +794,13 @@ as work progresses.
 - [x] `docs: add blueprint and restructure the design overview`
 - [x] `docs: separate driver blocks in robot! configuration`
 - [x] `feat(core): add Speed, Acceleration and Jerk quantities`
-- [ ] `feat(core): add Ramp motion profile`
-- [ ] `feat(core): add SCurve motion profile`
+- [ ] `feat(core): add profile traits and Trapezoid profile`
+- [ ] `feat(core): add Constant profile`
+- [ ] `feat(core): add FastTrapezoid profile`
+- [ ] `feat(core): add Power profile`
+- [ ] `feat(core): add FastPower profile`
+- [ ] `feat(core): add Sine profile`
+- [ ] `feat(core): add SCurve profile`
 - [ ] `feat(core): add differential-drive kinematics and odometry`
 - [ ] `feat(core): add Path trait with line and turn`
 - [ ] `feat(core): add waypoint routes with slopes`
@@ -845,10 +872,12 @@ as work progresses.
 
 Host tests, run with `cargo test -p capek-core`:
 
-- **Profiles:** limits are never exceeded, speed is continuous, `SCurve` jerk
-  stays bounded, `stop()` reaches rest from every phase, and `Fast` stays
-  within a few percent of `Exact`. The two ninja-equivalent ramps reproduce
-  ninja's delay tables within tolerance.
+- **Profiles:** limits are never exceeded, speed is continuous (except for
+  `Constant`), `Sine` and `SCurve` acceleration is continuous, `SCurve` jerk
+  stays bounded, `stop()` reaches rest from every phase, and each `Fast`
+  profile stays within a few percent of its exact counterpart.
+  `FastTrapezoid` and `FastPower` reproduce ninja's delay tables within
+  tolerance.
 - **Routes:** segments without slopes are exact straight lines, slopes give
   matching tangents at joints, corners stop and turn, and arc-length tables
   match numeric integration.

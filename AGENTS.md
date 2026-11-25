@@ -30,6 +30,12 @@ Read both before working.
 - Use `f32`, not `f64`. The RP2040 has no FPU and the RP2350 only has an f32 FPU.
 - Public APIs take quantity types from `capek_core::units` (`Length`, `Angle`)
   for physical values, never a bare `f32`, so the signature documents the unit.
+- Use `core::time::Duration` for general-purpose time spans, such as the time
+  step of a motion plan or a quantity divided by time. Use `embassy_time`
+  types for time measured against the board's clock, such as timeouts, timers
+  and timestamps, because they map directly to hardware ticks and are faster.
+  `capek-core` code that needs board time takes it through a trait or generic
+  rather than depending on `embassy_time` directly.
 - Shared external dependency versions go in `[workspace.dependencies]` and must
   match the versions `embassy-rp` pulls in.
 - Every public item gets rustdoc. Crates use `#![warn(missing_docs)]`.
