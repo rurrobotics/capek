@@ -10,6 +10,7 @@
 #![cfg_attr(not(test), no_std)]
 #![warn(missing_docs)]
 
+pub mod driver;
 pub mod filter;
 pub mod motion;
 pub mod pid;

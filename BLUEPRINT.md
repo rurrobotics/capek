@@ -661,6 +661,14 @@ plain code and is tested on the host.
   long moves.
 - All axes advance by the same `dt`, so they stay synchronised in time on
   curves.
+- In code: `StepGen::new(step_lengths, ticks_per_second)` takes the distance
+  of one step on each axis and the driver's timer rate, and
+  `slice(axes, dt, emit)` emits the words for one slice. A step is made when
+  an axis passes the half-step boundary, at the time interpolated within the
+  slice. Each delay is measured from the previous step as emitted, after
+  rounding to a tick, so rounding never accumulates. `rebase()` starts the
+  next move from zero and carries the sub-step remainder.
+- A `Trajectory` feeds it the state of the planned pieces slice by slice.
 
 ### Step strategies
 
@@ -873,7 +881,7 @@ as work progresses.
 - [x] `feat(core): add waypoint routes with slopes`
 - [x] `feat(core): add curvature-aware speed planner`
 - [x] `feat(core): make routes curvature-continuous`
-- [ ] `feat(core): add time-sliced step generator`
+- [x] `feat(core): add time-sliced step generator`
 - [ ] `feat(core): add driver traits and the Platform contract`
 - [ ] `feat(core): add Stepper and Servo components`
 - [ ] `feat(core): add button, output and ultrasonic components`
