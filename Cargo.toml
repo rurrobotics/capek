@@ -15,3 +15,4 @@ repository = "https://github.com/rurrobotics/capek"
 capek-core = { path = "capek-core" }
 capek-proto = { path = "capek-proto" }
 capek-macros = { path = "capek-macros" }
+heapless = { version = "0.9.4", default-features = false }

@@ -7,4 +7,5 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+heapless.workspace = true
 libm = { version = "0.2.16", default-features = false }

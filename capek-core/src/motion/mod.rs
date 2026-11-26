@@ -5,7 +5,7 @@
 //! point along it, and a step strategy decides when step timings are
 //! computed. The time base shared by all axes is time itself, not steps.
 //! [`kinematics`] converts between the robot's motion and its wheels, and
-//! tracks its pose on the field.
+//! tracks its pose on the field. [`route`] builds paths through waypoints.
 //!
 //! # Examples
 //!
@@ -27,3 +27,4 @@
 pub mod kinematics;
 pub mod path;
 pub mod profile;
+pub mod route;

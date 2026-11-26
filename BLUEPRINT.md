@@ -108,7 +108,7 @@ capek-core/src/
 │   │   └── scurve.rs SCurve
 │   ├── kinematics.rs Differential, Pose
 │   ├── path.rs       Path<N>; Line, Turn
-│   ├── route.rs      Waypoint, Route, Hermite segments
+│   ├── route.rs      Waypoint, Route, RoutePath, Hermite segments
 │   ├── planner.rs    speed planning along a path
 │   ├── stepgen.rs    StepGen
 │   ├── strategy.rs   StepStrategy: Buffered, Realtime, Precomputed
@@ -590,9 +590,13 @@ pub type Route = heapless::Vec<Waypoint, MAX_WAYPOINTS>;   // 16 by default
   turns in place. A waypoint with a slope is passed smoothly, without stopping.
 - A route starts at the current pose. If the first segment does not leave
   along the current heading, the robot turns in place first.
-- When a route is planned, each curved segment gets a small arc-length table:
-  curvature and both wheel distances sampled along it. `axes(s)` is then a
-  lookup with interpolation.
+- `RoutePath::new(pose, &route, &drive)` turns a route into a `Path<2>` made
+  of turns in place, straight lines and curves. Each curved segment gets a
+  small arc-length table: arc length and heading at 33 points along it, by
+  Gauss-Legendre quadrature. Wheel distances follow from those through
+  `Differential::wheels`, and curvature from the change in heading, so
+  `axes(s)` is a lookup with interpolation. `segments()` lists the pieces for
+  the speed planner.
 
 ### Speed planning
 
@@ -834,7 +838,7 @@ as work progresses.
 - [x] `feat(core): add SCurve profile`
 - [x] `feat(core): add differential-drive kinematics and odometry`
 - [x] `feat(core): add Path trait with line and turn`
-- [ ] `feat(core): add waypoint routes with slopes`
+- [x] `feat(core): add waypoint routes with slopes`
 - [ ] `feat(core): add curvature-aware speed planner`
 - [ ] `feat(core): add time-sliced step generator`
 - [ ] `feat(core): add driver traits and the Platform contract`
