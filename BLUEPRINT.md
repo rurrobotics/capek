@@ -497,7 +497,10 @@ Each profile is its own type with only the parameters it needs:
   with fourth-order Runge-Kutta. A plan that starts above `max_speed` brakes
   at a constant `accel` until it meets the curve.
 - `Sine` has no acceleration jumps at the ends of a ramp, without the cost
-  of planning an S-curve.
+  of planning an S-curve. A half-sine ramp covers the same distance as a
+  constant-acceleration ramp at `2·accel / π`, so it plans like a
+  `Trapezoid` at that acceleration. It ignores the acceleration it starts
+  from, so replanning mid-ramp makes acceleration jump.
 - The `Fast` profiles run David Austin's per-step recurrence, which avoids
   square roots per sample. They step through the curve in distance increments
   of `resolution`, which the parent component sets from its geometry through
@@ -814,7 +817,7 @@ as work progresses.
 - [x] `feat(core): add FastTrapezoid profile`
 - [x] `feat(core): add Power profile`
 - [x] `feat(core): add FastPower profile`
-- [ ] `feat(core): add Sine profile`
+- [x] `feat(core): add Sine profile`
 - [ ] `feat(core): add SCurve profile`
 - [ ] `feat(core): add differential-drive kinematics and odometry`
 - [ ] `feat(core): add Path trait with line and turn`
