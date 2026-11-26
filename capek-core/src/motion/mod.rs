@@ -4,6 +4,8 @@
 //! how fast to move along a path, a path decides where each axis is at each
 //! point along it, and a step strategy decides when step timings are
 //! computed. The time base shared by all axes is time itself, not steps.
+//! [`kinematics`] converts between the robot's motion and its wheels, and
+//! tracks its pose on the field.
 //!
 //! # Examples
 //!
@@ -22,4 +24,5 @@
 //! }
 //! ```
 
+pub mod kinematics;
 pub mod profile;

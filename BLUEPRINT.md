@@ -551,7 +551,10 @@ converts between path positions and wheel rotations. Each wheel's `Stepper`
 component converts rotations into steps, using its own steps per revolution
 and microstepping. `Pose` is the drivetrain's odometry: it integrates the steps
 actually made into x, y and heading. Routes are expressed in this field frame,
-and `SetPose` defines it.
+and `SetPose` defines it. Headings are counter-clockwise from the x axis and
+wheel pairs are ordered `[left, right]`. Each odometry update is integrated as
+an arc of constant curvature, which is exact for lines, turns and circular
+arcs whatever the update rate.
 
 The path coordinate `s` is the distance travelled by the robot's centre. For
 an in-place turn it is the distance each wheel rolls.
@@ -825,7 +828,7 @@ as work progresses.
 - [x] `feat(core): add FastPower profile`
 - [x] `feat(core): add Sine profile`
 - [x] `feat(core): add SCurve profile`
-- [ ] `feat(core): add differential-drive kinematics and odometry`
+- [x] `feat(core): add differential-drive kinematics and odometry`
 - [ ] `feat(core): add Path trait with line and turn`
 - [ ] `feat(core): add waypoint routes with slopes`
 - [ ] `feat(core): add curvature-aware speed planner`
