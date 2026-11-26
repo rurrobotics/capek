@@ -13,6 +13,6 @@ rp2040 = ["embassy-rp/rp2040", "dep:portable-atomic"]
 [dependencies]
 capek-core.workspace = true
 embassy-rp = { version = "0.10.0", default-features = false }
-portable-atomic = { version = "1.13.1", features = [
+portable-atomic = { version = "1.15.0", features = [
     "critical-section",
 ], optional = true }
