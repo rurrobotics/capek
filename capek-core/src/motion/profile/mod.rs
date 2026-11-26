@@ -14,6 +14,7 @@
 //!
 //! Available profiles:
 //!
+//! - [`Constant`]: a fixed speed with no ramps.
 //! - [`Trapezoid`]: constant acceleration, computed in closed form.
 //!
 //! # Examples
@@ -49,8 +50,10 @@
 //! assert!((state.s - target).abs() < 0.001.mm());
 //! ```
 
+mod constant;
 mod trapezoid;
 
+pub use constant::{Constant, ConstantPlan};
 pub use trapezoid::{Trapezoid, TrapezoidPlan};
 
 use crate::units::{Acceleration, Length, Speed};

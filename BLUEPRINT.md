@@ -484,7 +484,9 @@ Each profile is its own type with only the parameters it needs:
 - `max_speed` is the cruise speed the profile actually reaches, and `accel`
   is the peak acceleration. Deceleration mirrors acceleration.
 - `Constant` suits motors that can start at full speed, such as a 28BYJ-48,
-  and tests.
+  and tests. It moves at `speed` for the whole distance, ignoring the start
+  speed, and its final state reports the requested end speed capped at
+  `speed`, so the next plan can pick up from it. `stop()` is immediate.
 - `Power` follows ninja's power curve: speed over distance is
   `v = v∞·√(u / (1 + u^(p−1))^(1/(p−1)))` with `u = s·2·accel / v∞²`. It
   starts at full `accel` and eases into cruise; larger `p` eases later and
@@ -801,7 +803,7 @@ as work progresses.
 - [x] `docs: separate driver blocks in robot! configuration`
 - [x] `feat(core): add Speed, Acceleration and Jerk quantities`
 - [x] `feat(core): add profile traits and Trapezoid profile`
-- [ ] `feat(core): add Constant profile`
+- [x] `feat(core): add Constant profile`
 - [ ] `feat(core): add FastTrapezoid profile`
 - [ ] `feat(core): add Power profile`
 - [ ] `feat(core): add FastPower profile`
