@@ -45,6 +45,7 @@
 
 use super::kinematics::{Differential, Pose};
 use super::path::Path;
+use super::planner::{MAX_SPANS, Span};
 use crate::units::{Angle, Length};
 use core::f32::consts::PI;
 use heapless::Vec;
@@ -54,6 +55,13 @@ pub const MAX_WAYPOINTS: usize = 16;
 
 /// Intervals in the arc-length table of each curved segment.
 const SAMPLES: usize = 32;
+
+/// Spans each curved segment is cut into for speed planning.
+const CURVE_SPANS: usize = 8;
+
+// A route of turns and curves must fit in one planned move.
+const _: () = assert!(MAX_WAYPOINTS * (1 + CURVE_SPANS) <= MAX_SPANS);
+const _: () = assert!(SAMPLES.is_multiple_of(CURVE_SPANS));
 
 /// A point the robot drives through, with an optional heading there.
 ///
@@ -409,6 +417,74 @@ impl RoutePath {
             start: Length::mm(p.start),
             length: Length::mm(p.length),
         })
+    }
+}
+
+impl RoutePath {
+    /// The path cut into spans for the speed planner.
+    ///
+    /// Turns in place must start and end at rest. Each curve is cut into
+    /// spans whose limits are scaled by `1 / (1 + |κ|·track / 2)`, with the
+    /// highest curvature `κ` the robot drives in that span, so that the outer
+    /// wheel stays within the profile's limits.
+    ///
+    /// ```
+    /// use capek_core::motion::kinematics::{Differential, Pose};
+    /// use capek_core::motion::route::{Route, RoutePath, Waypoint};
+    /// use capek_core::units::UnitExt;
+    ///
+    /// let drive = Differential::new(56.mm(), 159.mm());
+    /// let route = Route::from_slice(&[
+    ///     Waypoint::at(500.mm(), 0.mm()),
+    ///     Waypoint::at(500.mm(), 500.mm()),
+    /// ])
+    /// .unwrap();
+    /// let spans = RoutePath::new(Pose::ORIGIN, &route, &drive).spans();
+    ///
+    /// // Straight, stop, turn, stop, straight.
+    /// assert_eq!(spans.len(), 3);
+    /// assert!(spans[0].rest_after && spans[1].rest_after && !spans[2].rest_after);
+    /// ```
+    pub fn spans(&self) -> Vec<Span, MAX_SPANS> {
+        let mut spans: Vec<Span, MAX_SPANS> = Vec::new();
+        let half_track = self.drive.track.as_mm() / 2.0;
+        for piece in &self.pieces {
+            match piece.shape {
+                Shape::Turn(_) => {
+                    if let Some(prev) = spans.last_mut() {
+                        prev.rest_after = true;
+                    }
+                    let _ = spans.push(Span {
+                        rest_after: true,
+                        ..Span::new(Length::mm(piece.length))
+                    });
+                }
+                Shape::Straight => {
+                    let _ = spans.push(Span::new(Length::mm(piece.length)));
+                }
+                Shape::Curve(i) => {
+                    let table = &self.tables[i];
+                    let per = SAMPLES / CURVE_SPANS;
+                    for k in 0..CURVE_SPANS {
+                        let range = k * per..(k + 1) * per;
+                        let mut kappa: f32 = 0.0;
+                        for j in range.clone() {
+                            let ds = table.s[j + 1] - table.s[j];
+                            if ds > 0.0 {
+                                let dh = table.heading[j + 1] - table.heading[j];
+                                kappa = kappa.max(libm::fabsf(dh / ds));
+                            }
+                        }
+                        let length = table.s[range.end] - table.s[range.start];
+                        let _ = spans.push(Span {
+                            scale: 1.0 / (1.0 + kappa * half_track),
+                            ..Span::new(Length::mm(length))
+                        });
+                    }
+                }
+            }
+        }
+        spans
     }
 }
 

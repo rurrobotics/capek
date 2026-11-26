@@ -618,8 +618,18 @@ both wheels within the profile's limits:
    at each sample, given the profile's acceleration and jerk limits.
 4. Let the profile plan each piece between those junction speeds.
 
-Profile limits are therefore real wheel limits, for straight lines, turns and
-curves alike.
+In code, `RoutePath::spans()` cuts the path into `Span`s: one per straight and
+turn, and eight per curve, each with `scale = 1 / (1 + |κ|max·track / 2)`.
+Turns must start and end at rest. `plan_speeds` sets each junction to the
+lower cruise speed of its two spans, then runs the backward and forward passes
+with each span's `profile.scaled(scale).reachable(...)`. Each resulting
+`Piece` is planned with `profile.scaled(piece.scale).plan(...)`.
+
+Profile limits are therefore real wheel speed limits, for straight lines, turns
+and curves alike. Wheel acceleration is not yet limited on routes: Hermite
+segments only match heading at joints, so curvature jumps where a straight
+meets a curve and wheel speeds step there. Making routes curvature-continuous
+and capping speed where curvature changes is planned below.
 
 ### Step generation
 
@@ -847,7 +857,8 @@ as work progresses.
 - [x] `feat(core): add differential-drive kinematics and odometry`
 - [x] `feat(core): add Path trait with line and turn`
 - [x] `feat(core): add waypoint routes with slopes`
-- [ ] `feat(core): add curvature-aware speed planner`
+- [x] `feat(core): add curvature-aware speed planner`
+- [ ] `feat(core): make routes curvature-continuous`
 - [ ] `feat(core): add time-sliced step generator`
 - [ ] `feat(core): add driver traits and the Platform contract`
 - [ ] `feat(core): add Stepper and Servo components`

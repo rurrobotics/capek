@@ -26,5 +26,6 @@
 
 pub mod kinematics;
 pub mod path;
+pub mod planner;
 pub mod profile;
 pub mod route;
