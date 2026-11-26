@@ -131,6 +131,25 @@ impl Profile for Sine {
             end: Length::mm(s0 + down.distance()),
         }
     }
+
+    fn max_speed(&self) -> Speed {
+        self.max_speed
+    }
+
+    fn scaled(&self, factor: f32) -> Self {
+        Self {
+            max_speed: self.max_speed * factor,
+            accel: self.accel * factor,
+        }
+    }
+
+    fn reachable(&self, from: Speed, distance: Length) -> Speed {
+        // A trapezoid's at the equivalent acceleration 2·accel / π.
+        let v0 = from.as_mm_per_s().max(0.0);
+        let ae = 2.0 * self.accel.as_mm_per_s2() / PI;
+        let reach = 2.0 * ae * distance.as_mm().max(0.0);
+        Speed::mm_per_s(libm::sqrtf(v0 * v0 + reach).min(self.max_speed.as_mm_per_s()))
+    }
 }
 
 /// A move planned by [`Sine`].

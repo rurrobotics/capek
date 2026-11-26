@@ -61,6 +61,21 @@ impl Profile for Constant {
             v1: 0.0,
         }
     }
+
+    fn max_speed(&self) -> Speed {
+        self.speed
+    }
+
+    fn scaled(&self, factor: f32) -> Self {
+        Self {
+            speed: self.speed * factor,
+        }
+    }
+
+    fn reachable(&self, _from: Speed, _distance: Length) -> Speed {
+        // Speed changes are instantaneous.
+        self.speed
+    }
 }
 
 /// A move planned by [`Constant`].

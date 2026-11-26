@@ -107,6 +107,23 @@ impl Profile for Trapezoid {
             end: Length::mm(s0 + v0 * v0 / (2.0 * a)),
         }
     }
+
+    fn max_speed(&self) -> Speed {
+        self.max_speed
+    }
+
+    fn scaled(&self, factor: f32) -> Self {
+        Self {
+            max_speed: self.max_speed * factor,
+            accel: self.accel * factor,
+        }
+    }
+
+    fn reachable(&self, from: Speed, distance: Length) -> Speed {
+        let v0 = from.as_mm_per_s().max(0.0);
+        let reach = 2.0 * self.accel.as_mm_per_s2() * distance.as_mm().max(0.0);
+        Speed::mm_per_s(libm::sqrtf(v0 * v0 + reach).min(self.max_speed.as_mm_per_s()))
+    }
 }
 
 /// A move planned by [`Trapezoid`].
@@ -382,6 +399,29 @@ impl Profile for FastTrapezoid {
 
     fn set_resolution(&mut self, resolution: Length) {
         self.resolution = resolution;
+    }
+
+    fn max_speed(&self) -> Speed {
+        self.max_speed
+    }
+
+    fn scaled(&self, factor: f32) -> Self {
+        Self {
+            max_speed: self.max_speed * factor,
+            accel: self.accel * factor,
+            resolution: self.resolution,
+        }
+    }
+
+    fn reachable(&self, from: Speed, distance: Length) -> Speed {
+        // In whole increments, as `plan` counts them.
+        let (res, a) = self.params();
+        let vmax = self.max_speed.as_mm_per_s();
+        let nmax = (vmax * vmax / (2.0 * a * res)) as u32;
+        let n0 = index(from.as_mm_per_s().max(0.0), a, res);
+        let whole = (distance.as_mm().max(0.0) / res + 1e-3) as u32;
+        let n = n0.saturating_add(whole).min(nmax);
+        Speed::mm_per_s(libm::sqrtf(2.0 * a * res * n as f32).min(self.max_speed.as_mm_per_s()))
     }
 }
 

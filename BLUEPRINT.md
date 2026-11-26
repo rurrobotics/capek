@@ -461,6 +461,9 @@ pub trait Profile: Clone {
     fn plan(&self, from: State, distance: Length, end_speed: Speed) -> Self::Plan;
     fn stop(&self, from: State) -> Self::Plan;     // shortest stop the limits allow
     fn set_resolution(&mut self, resolution: Length) {}   // used by Fast profiles
+    fn max_speed(&self) -> Speed;
+    fn scaled(&self, factor: f32) -> Self;           // every limit times factor
+    fn reachable(&self, from: Speed, distance: Length) -> Speed;
 }
 
 pub trait Plan: Clone {
@@ -519,6 +522,11 @@ Each profile is its own type with only the parameters it needs:
   A starting acceleration beyond `accel`, or a deceleration too strong to
   fade before the speed reaches zero, is clamped. A move too short to bring
   the acceleration to zero ends at its distance still accelerating.
+- The speed planner asks the profile what it can do instead of assuming a
+  model: `reachable` gives the highest speed reachable over a distance, which
+  by symmetry also bounds braking, and `scaled` gives the same profile with
+  every limit scaled, used on curves. Each profile answers with the same
+  formulas its plans use, so planned junction speeds are always reachable.
 - Profiles plan between non-zero speeds, which the route planner needs. The
   recurrences start from the step index that matches the start speed.
 - The path coordinate only moves forward: distances and speeds are

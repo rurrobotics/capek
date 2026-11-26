@@ -421,6 +421,30 @@ impl Profile for SCurve {
         let peak = v0.max(if a0 > 0.0 { lim.settle(v0, a0) } else { 0.0 });
         b.finish(State::at(Length::mm(s0 + ramps.dist())), peak)
     }
+
+    fn max_speed(&self) -> Speed {
+        self.max_speed
+    }
+
+    fn scaled(&self, factor: f32) -> Self {
+        Self {
+            max_speed: self.max_speed * factor,
+            accel: self.accel * factor,
+            jerk: self.jerk * factor,
+        }
+    }
+
+    fn reachable(&self, from: Speed, distance: Length) -> Speed {
+        let lim = self.limits();
+        let v0 = from.as_mm_per_s().max(0.0);
+        let d = distance.as_mm().max(0.0);
+        if v0 >= lim.vmax || Ramp::new(v0, 0.0, lim.vmax, &lim).dist <= d {
+            return self.max_speed;
+        }
+        // The ramp's distance only grows with its end speed.
+        let v = bisect(v0, lim.vmax, d, |v| Ramp::new(v0, 0.0, v, &lim).dist);
+        Speed::mm_per_s(v)
+    }
 }
 
 /// A move planned by [`SCurve`].

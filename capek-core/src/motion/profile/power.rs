@@ -339,6 +339,30 @@ impl Profile for Power {
         d += shape.distance(sigma, 0.0);
         b.finish(Length::mm(s0 + d), 0.0, v0)
     }
+
+    fn max_speed(&self) -> Speed {
+        self.max_speed
+    }
+
+    fn scaled(&self, factor: f32) -> Self {
+        Self {
+            max_speed: self.max_speed * factor,
+            accel: self.accel * factor,
+            p: self.p,
+        }
+    }
+
+    fn reachable(&self, from: Speed, distance: Length) -> Speed {
+        let shape = self.shape();
+        let v0 = from.as_mm_per_s().max(0.0);
+        if v0 >= shape.vmax {
+            return self.max_speed;
+        }
+        // Speed squared moves linearly in u along the curve.
+        let u = sq(shape.sigma_at(v0)) + distance.as_mm().max(0.0) / shape.len;
+        let sigma = libm::sqrtf(u).min(shape.sigma_end);
+        Speed::mm_per_s(shape.speed(sigma).min(self.max_speed.as_mm_per_s()))
+    }
 }
 
 /// A move planned by [`Power`].
@@ -741,6 +765,31 @@ impl Profile for FastPower {
 
     fn set_resolution(&mut self, resolution: Length) {
         self.resolution = resolution;
+    }
+
+    fn max_speed(&self) -> Speed {
+        self.max_speed
+    }
+
+    fn scaled(&self, factor: f32) -> Self {
+        Self {
+            max_speed: self.max_speed * factor,
+            accel: self.accel * factor,
+            p: self.p,
+            resolution: self.resolution,
+        }
+    }
+
+    fn reachable(&self, from: Speed, distance: Length) -> Speed {
+        // In whole increments, as `plan` counts them.
+        let st = self.steps();
+        let v0 = from.as_mm_per_s().max(0.0);
+        if v0 >= st.shape.vmax {
+            return self.max_speed;
+        }
+        let whole = (distance.as_mm().max(0.0) / st.res + 1e-3) as u32;
+        let n = st.index(v0).saturating_add(whole).min(st.nmax);
+        Speed::mm_per_s(st.speed(n).min(self.max_speed.as_mm_per_s()))
     }
 }
 

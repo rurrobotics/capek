@@ -160,6 +160,58 @@ pub trait Profile: Clone {
     fn set_resolution(&mut self, resolution: Length) {
         let _ = resolution;
     }
+
+    /// The cruise speed, the highest speed a plan reaches from rest.
+    ///
+    /// ```
+    /// use capek_core::motion::profile::{Profile, Trapezoid};
+    /// use capek_core::units::UnitExt;
+    ///
+    /// let profile = Trapezoid { max_speed: 400.mm_per_s(), accel: 1200.mm_per_s2() };
+    /// assert_eq!(profile.max_speed(), 400.mm_per_s());
+    /// ```
+    fn max_speed(&self) -> Speed;
+
+    /// The same profile with every limit (speed, acceleration and jerk)
+    /// multiplied by `factor`.
+    ///
+    /// Scaling all limits by the same factor keeps the shape of the motion.
+    /// The speed planner uses it on curves, where the outer wheel moves
+    /// faster than the centre: planning the centre with limits scaled by
+    /// `1 / (1 + |κ|·track / 2)` keeps that wheel within the real limits.
+    /// Parameters that are not limits, such as a resolution or an exponent,
+    /// are kept.
+    ///
+    /// ```
+    /// use capek_core::motion::profile::{Profile, Trapezoid};
+    /// use capek_core::units::UnitExt;
+    ///
+    /// let profile = Trapezoid { max_speed: 400.mm_per_s(), accel: 1200.mm_per_s2() };
+    /// let half = profile.scaled(0.5);
+    /// assert_eq!(half.max_speed(), 200.mm_per_s());
+    /// assert_eq!(half.accel, 600.mm_per_s2());
+    /// ```
+    fn scaled(&self, factor: f32) -> Self;
+
+    /// The highest speed reachable from `from` within `distance`, starting
+    /// with no acceleration, capped at [`max_speed`](Self::max_speed).
+    ///
+    /// Deceleration mirrors acceleration, so this is also the highest speed
+    /// from which the profile can slow down to `from` within `distance`. The
+    /// speed planner uses it in both directions to choose speeds that every
+    /// plan can actually reach.
+    ///
+    /// ```
+    /// use capek_core::motion::profile::{Profile, Trapezoid};
+    /// use capek_core::units::UnitExt;
+    ///
+    /// let profile = Trapezoid { max_speed: 400.mm_per_s(), accel: 1200.mm_per_s2() };
+    /// // v² = 2·a·d
+    /// let v = profile.reachable(0.mm_per_s(), 15.mm());
+    /// assert!((v - 189.737.mm_per_s()).abs() < 0.01.mm_per_s());
+    /// assert_eq!(profile.reachable(0.mm_per_s(), 1.m()), 400.mm_per_s());
+    /// ```
+    fn reachable(&self, from: Speed, distance: Length) -> Speed;
 }
 
 /// A planned move, advanced in time.
@@ -183,4 +235,128 @@ pub trait Plan: Clone {
 
     /// Whether the plan has reached its end.
     fn is_done(&self) -> bool;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::units::UnitExt;
+
+    /// Runs a plan to the end and returns its final state.
+    fn finish<P: Plan>(mut plan: P) -> State {
+        let mut state = State::REST;
+        let mut steps = 0;
+        while !plan.is_done() {
+            state = plan.advance(Duration::from_millis(1));
+            steps += 1;
+            assert!(steps < 60_000, "plan never finished");
+        }
+        state
+    }
+
+    /// `reachable` must agree with what `plan` can do, in both directions.
+    fn check<P: Profile + core::fmt::Debug>(p: P, tol: f32) {
+        let vmax = p.max_speed().as_mm_per_s();
+        for (v0, d) in [
+            (0.0, 5.0),
+            (0.0, 50.0),
+            (0.0, 2000.0),
+            (100.0, 30.0),
+            (300.0, 10.0),
+        ] {
+            let from = State {
+                s: 0.mm(),
+                v: v0.mm_per_s(),
+                a: 0.mm_per_s2(),
+            };
+            let v1 = p.reachable(v0.mm_per_s(), d.mm()).as_mm_per_s();
+            assert!(v1 <= vmax + 1e-3, "{p:?}: {v1} above max speed");
+            assert!(v1 >= v0.min(vmax) - tol, "{p:?}: {v1} below start {v0}");
+            assert!(v1 <= p.reachable(v0.mm_per_s(), (d * 2.0).mm()).as_mm_per_s() + 1e-3);
+
+            // Speeding up to it fits in the distance...
+            let end = finish(p.plan(from, d.mm(), v1.mm_per_s()));
+            assert!(
+                (end.v.as_mm_per_s() - v1).abs() <= tol,
+                "{p:?}: {end:?} not {v1}"
+            );
+
+            // ...and so does slowing back down from it.
+            let back = State {
+                v: v1.mm_per_s(),
+                ..from
+            };
+            let end = finish(p.plan(back, d.mm(), v0.mm_per_s()));
+            let expected = v0.min(vmax);
+            assert!(
+                (end.v.as_mm_per_s() - expected).abs() <= tol,
+                "{p:?}: braking from {v1} over {d} ended at {end:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn reachable_matches_every_profile() {
+        let (v, a, j) = (400.mm_per_s(), 1200.mm_per_s2(), 8000.mm_per_s3());
+        let res = (56.0 * core::f32::consts::PI / 400.0).mm();
+        let mut ft = FastTrapezoid::new(v, a);
+        ft.set_resolution(res);
+        let mut fp = FastPower::new(v, a, 3.0);
+        fp.set_resolution(res);
+
+        check(Constant { speed: v }, 1e-3);
+        check(
+            Trapezoid {
+                max_speed: v,
+                accel: a,
+            },
+            1e-2,
+        );
+        check(
+            Sine {
+                max_speed: v,
+                accel: a,
+            },
+            1e-2,
+        );
+        check(
+            Power {
+                max_speed: v,
+                accel: a,
+                p: 3.0,
+            },
+            0.05,
+        );
+        check(
+            SCurve {
+                max_speed: v,
+                accel: a,
+                jerk: j,
+            },
+            0.05,
+        );
+        // Whole increments: speeds are a few mm/s apart at low speed.
+        check(ft, 6.0);
+        check(fp, 6.0);
+    }
+
+    #[test]
+    fn scaled_scales_the_limits() {
+        let p = SCurve {
+            max_speed: 400.mm_per_s(),
+            accel: 1200.mm_per_s2(),
+            jerk: 8000.mm_per_s3(),
+        };
+        let half = p.scaled(0.5);
+        assert_eq!(half.max_speed(), 200.mm_per_s());
+        assert_eq!(half.accel, 600.mm_per_s2());
+        assert_eq!(half.jerk, 4000.mm_per_s3());
+
+        let mut f = FastPower::new(400.mm_per_s(), 1200.mm_per_s2(), 3.0);
+        f.set_resolution(0.44.mm());
+        let half = f.scaled(0.5);
+        assert_eq!(half.resolution(), 0.44.mm());
+        assert_eq!(half.p, 3.0);
+        assert_eq!(half.max_speed(), 200.mm_per_s());
+    }
 }
