@@ -47,7 +47,9 @@ impl Profile for Trapezoid {
         let reach_sq = 2.0 * a * d;
         if v1 > v0 {
             v1 = v1.min(libm::sqrtf(v0 * v0 + reach_sq));
-        } else if v0 * v0 - v1 * v1 > reach_sq {
+        } else if v0 * v0 - v1 * v1 > reach_sq * (1.0 + 1e-5) {
+            // Beyond rounding: a stop planned at exactly the reachable speed
+            // must still end at rest.
             v1 = libm::sqrtf(v0 * v0 - reach_sq);
         }
 
@@ -743,6 +745,22 @@ mod tests {
             }
         }
         let _ = f;
+    }
+
+    #[test]
+    fn stop_at_exactly_the_reachable_speed_ends_at_rest() {
+        let p = profile();
+        for i in 1..200 {
+            let d = i as f32 * 0.37;
+            let v0 = libm::sqrtf(2.0 * 1200.0 * d);
+            let from = State {
+                s: 0.mm(),
+                v: v0.mm_per_s(),
+                a: 0.mm_per_s2(),
+            };
+            let (end, _) = run(&p, p.plan(from, d.mm(), 0.mm_per_s()), from);
+            assert_eq!(end.v, 0.mm_per_s(), "from {v0} over {d}");
+        }
     }
 }
 

@@ -365,7 +365,10 @@ impl Profile for SCurve {
         let mut b = Builder::new(s0);
 
         let settle = Ramp::new(v0, a0, vs, &lim);
-        if a0 != 0.0 && settle.dist > d {
+        // Comparisons allow for rounding, so that a move planned at exactly a
+        // reachable speed is not mistaken for an unreachable one.
+        let fits = |x: f32| x <= d * (1.0 + 1e-5) + 1e-6;
+        if a0 != 0.0 && !fits(settle.dist) {
             // Too short even to bring the acceleration to zero: stop the
             // plan at its distance, still accelerating.
             let t = settle.time_at(d);
@@ -386,9 +389,11 @@ impl Profile for SCurve {
             a: Acceleration::ZERO,
         };
 
-        if needed(v1) > d {
+        if !fits(needed(v1)) {
             // The end speed is out of reach: end at the closest speed that
             // fits, between where settling leaves the speed and `v1`.
+            // Bisection keeps one end that fits, so the speed it returns
+            // always covers no more than the distance.
             let ve = bisect(vs, v1, d, |v| lim.ramp_to(v0, a0, v).dist());
             b.ramps(lim.ramp_to(v0, a0, ve));
             return b.finish(at_rest(ve), peak.max(ve));
@@ -505,7 +510,9 @@ impl SCurvePlan {
             Segment::Cruise(v) => (v * tau, v, 0.0),
         };
         State {
-            s: Length::mm(piece.s0 + s),
+            // Rounding allowed in planning can put the ramps a hair past the
+            // end; never report a position beyond it.
+            s: Length::mm((piece.s0 + s).min(self.end.s.as_mm())),
             v: Speed::mm_per_s(v),
             a: Acceleration::mm_per_s2(a),
         }
@@ -727,6 +734,20 @@ mod tests {
                 assert!(close(c.s.as_mm(), f.s.as_mm(), 1e-2));
                 assert!(close(c.v.as_mm_per_s(), f.v.as_mm_per_s(), 1e-2));
             }
+        }
+    }
+
+    #[test]
+    fn stop_at_exactly_the_reachable_speed_ends_at_rest() {
+        // Without allowing for rounding, a stop that needs 1e-5 mm too much
+        // was taken as unreachable and ended far above rest.
+        let lim = profile().limits();
+        for i in 1..100 {
+            let d = i as f32 * 0.73;
+            let v0 = bisect(0.0, 400.0, d, |v| Ramp::new(0.0, 0.0, v, &lim).dist);
+            let from = moving(v0, 0.0);
+            let end = run(profile().plan(from, d.mm(), 0.mm_per_s()), from);
+            assert!(end.v < 0.05.mm_per_s(), "from {v0} over {d}: {end:?}");
         }
     }
 }

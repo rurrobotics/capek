@@ -92,7 +92,9 @@ impl Profile for Sine {
         let reach_sq = 2.0 * ae * d;
         if v1 > v0 {
             v1 = v1.min(libm::sqrtf(v0 * v0 + reach_sq));
-        } else if v0 * v0 - v1 * v1 > reach_sq {
+        } else if v0 * v0 - v1 * v1 > reach_sq * (1.0 + 1e-5) {
+            // Beyond rounding: a stop planned at exactly the reachable speed
+            // must still end at rest.
             v1 = libm::sqrtf(v0 * v0 - reach_sq);
         }
         let apex = libm::sqrtf((reach_sq + v0 * v0 + v1 * v1) / 2.0);
@@ -415,6 +417,25 @@ mod tests {
                 assert!(close(c.s.as_mm(), f.s.as_mm(), 1e-2));
                 assert!(close(c.v.as_mm_per_s(), f.v.as_mm_per_s(), 1e-2));
             }
+        }
+    }
+
+    #[test]
+    fn stop_at_exactly_the_reachable_speed_ends_at_rest() {
+        let ae = 2.0 * 1200.0 / PI;
+        for i in 1..200 {
+            let d = i as f32 * 0.37;
+            let from = State {
+                s: 0.mm(),
+                v: libm::sqrtf(2.0 * ae * d).mm_per_s(),
+                a: 0.mm_per_s2(),
+            };
+            let mut plan = profile().plan(from, d.mm(), 0.mm_per_s());
+            let mut end = from;
+            while !plan.is_done() {
+                end = plan.advance(DT);
+            }
+            assert_eq!(end, State::at(d.mm()), "over {d}");
         }
     }
 }
