@@ -92,7 +92,7 @@ capek-core/src/
 ├── units.rs          Length, Angle, Speed, Acceleration, Jerk, UnitExt, Quantity
 ├── filter.rs         Ema, MovingAverage, Median, Biquad, Kalman, RateLimit, chaining
 ├── pid.rs            Pid with limits, anti-windup, derivative filtering
-├── trigger.rs        Trigger<Q>: Below, Above, Changed, Error, Every
+├── trigger.rs        Trigger<Q>: Below, Above, Changed, Error, Every; Watcher
 ├── platform.rs       Platform trait: the contract every platform crate fulfils
 ├── driver.rs         StepperDriver, ServoDriver, PulseTimer, StepWord
 ├── command/
@@ -461,6 +461,13 @@ pub enum Trigger<Q> { Below(Q), Above(Q), Changed, Error, Every }
 
 - `Below` and `Above` fire once when the value crosses the threshold, not on
   every sample. Using a lower `Below` and a higher `Above` gives hysteresis.
+  The first reading counts as a crossing, so an obstacle already there at
+  start-up fires `Below`, and a missing reading leaves the thresholds as they
+  were.
+- `Changed` fires when a reading differs from the previous one, `Every` on
+  every reading.
+- Each trigger is watched by a `Watcher`, which keeps what it needs between
+  readings: `watcher.check(reading)` says whether it fires.
 - `Error` fires when the sensor stops returning readings, for example an
   unplugged HC-SR04 that gives no echo. Open space is not an error: with
   nothing in range the HC-SR04 reads the far end of its range, 4 m.
@@ -907,7 +914,7 @@ as work progresses.
 - [x] `docs: describe goals, crates and design in README`
 - [x] `docs: add AGENTS.md and CLAUDE.md`
 
-### M1: Core (in progress)
+### M1: Core (done)
 
 - [x] `feat(core): add Length and Angle quantities`
 - [x] `docs: require rustdoc examples and quantity types`
@@ -932,7 +939,7 @@ as work progresses.
 - [x] `feat(core): add driver traits and the Platform contract`
 - [x] `feat(core): add Stepper and Servo components`
 - [x] `feat(core): add button, output and HC-SR04 components`
-- [ ] `feat(core): add sensor triggers`
+- [x] `feat(core): add sensor triggers`
 
 ### M2: RP platform
 

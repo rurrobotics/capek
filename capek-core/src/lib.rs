@@ -16,6 +16,7 @@ pub mod filter;
 pub mod motion;
 pub mod pid;
 pub mod platform;
+pub mod trigger;
 pub mod units;
 
 #[cfg(test)]

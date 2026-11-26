@@ -172,7 +172,7 @@ by hand.
 ## Roadmap
 
 - [x] **M0** Workspace scaffold and CI
-- [ ] **M1** `capek-core`: units, filters, PID, profiles, waypoint routes, step generation, platform contract, base components, triggers
+- [x] **M1** `capek-core`: units, filters, PID, profiles, waypoint routes, step generation, platform contract, base components, triggers
 - [ ] **M2** RP platform crate: step/dir and four-wire steppers, servos, GPIO
 - [ ] **M3** Command mutexes, step strategies and components
 - [ ] **M4** `robot!` and `#[capek::main]`
