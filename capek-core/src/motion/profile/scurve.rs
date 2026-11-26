@@ -556,6 +556,10 @@ impl Plan for SCurvePlan {
     fn is_done(&self) -> bool {
         self.t >= self.total
     }
+
+    fn overshoot(&self) -> Duration {
+        Duration::from_secs_f32((self.t - self.total).max(0.0))
+    }
 }
 
 #[cfg(test)]

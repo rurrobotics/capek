@@ -249,6 +249,27 @@ pub trait Plan: Clone {
 
     /// Whether the plan has reached its end.
     fn is_done(&self) -> bool;
+
+    /// How far the plan has been advanced past its end, or zero while it is
+    /// running.
+    ///
+    /// When a plan ends partway through a time slice, this is the part of the
+    /// slice it did not use, so that the next plan can carry on for exactly
+    /// that long and a chain of plans loses no time at the joints.
+    ///
+    /// ```
+    /// use capek_core::motion::profile::{Constant, Plan, Profile, State};
+    /// use capek_core::units::UnitExt;
+    /// use core::time::Duration;
+    ///
+    /// let profile = Constant { speed: 100.mm_per_s() };
+    /// let mut plan = profile.plan(State::REST, 10.mm(), 0.mm_per_s()); // 100 ms
+    /// plan.advance(Duration::from_millis(80));
+    /// assert_eq!(plan.overshoot(), Duration::ZERO);
+    /// plan.advance(Duration::from_millis(30));
+    /// assert!((plan.overshoot().as_secs_f32() - 0.010).abs() < 1e-6);
+    /// ```
+    fn overshoot(&self) -> Duration;
 }
 
 #[cfg(test)]
@@ -307,6 +328,71 @@ mod tests {
                 "{p:?}: braking from {v1} over {d} ended at {end:?}"
             );
         }
+    }
+
+    /// Advancing in coarse slices, the time used less the overshoot is the
+    /// plan's real duration.
+    fn check_overshoot<P: Profile + core::fmt::Debug>(p: P) {
+        for d in [3.0, 50.0, 700.0] {
+            // One long step finishes the plan with as little accumulation as
+            // the plan allows.
+            let mut whole = p.plan(State::REST, d.mm(), 0.mm_per_s());
+            whole.advance(Duration::from_secs(10));
+            let duration = 10.0 - whole.overshoot().as_secs_f32();
+
+            let mut coarse = p.plan(State::REST, d.mm(), 0.mm_per_s());
+            let mut slices = 0u32;
+            while !coarse.is_done() {
+                assert_eq!(coarse.overshoot(), Duration::ZERO);
+                coarse.advance(Duration::from_millis(7));
+                slices += 1;
+            }
+            let used = (Duration::from_millis(7) * slices).as_secs_f32();
+            let ran = used - coarse.overshoot().as_secs_f32();
+            // Plans keep time in f32, which drifts by up to about 0.1 % over
+            // many slices. A slice lost at the end would be 0 to 7 ms off.
+            let tol = 1e-4 + 1e-3 * duration;
+            assert!(
+                (ran - duration).abs() < tol,
+                "{p:?} over {d}: {ran} vs {duration}"
+            );
+            // Once done, every further advance is overshoot.
+            let before = coarse.overshoot();
+            coarse.advance(Duration::from_millis(3));
+            let extra = (coarse.overshoot() - before).as_secs_f32();
+            assert!((extra - 0.003).abs() < 1e-6, "{p:?}");
+        }
+    }
+
+    #[test]
+    fn overshoot_is_the_unused_time() {
+        let (v, a, j) = (400.mm_per_s(), 1200.mm_per_s2(), 8000.mm_per_s3());
+        let res = (56.0 * core::f32::consts::PI / 400.0).mm();
+        let mut ft = FastTrapezoid::new(v, a);
+        ft.set_resolution(res);
+        let mut fp = FastPower::new(v, a, 3.0);
+        fp.set_resolution(res);
+        check_overshoot(Constant { speed: v });
+        check_overshoot(Trapezoid {
+            max_speed: v,
+            accel: a,
+        });
+        check_overshoot(Sine {
+            max_speed: v,
+            accel: a,
+        });
+        check_overshoot(Power {
+            max_speed: v,
+            accel: a,
+            p: 3.0,
+        });
+        check_overshoot(SCurve {
+            max_speed: v,
+            accel: a,
+            jerk: j,
+        });
+        check_overshoot(ft);
+        check_overshoot(fp);
     }
 
     #[test]

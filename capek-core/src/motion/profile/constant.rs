@@ -153,6 +153,10 @@ impl Plan for ConstantPlan {
     fn is_done(&self) -> bool {
         self.t >= self.t_end
     }
+
+    fn overshoot(&self) -> Duration {
+        Duration::from_secs_f32((self.t - self.t_end).max(0.0))
+    }
 }
 
 #[cfg(test)]

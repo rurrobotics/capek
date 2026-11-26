@@ -240,6 +240,10 @@ impl Plan for TrapezoidPlan {
     fn is_done(&self) -> bool {
         self.t >= self.t3
     }
+
+    fn overshoot(&self) -> Duration {
+        Duration::from_secs_f32((self.t - self.t3).max(0.0))
+    }
 }
 
 /// Resolution a Fast profile uses until a parent component sets one.
@@ -486,6 +490,8 @@ pub struct FastTrapezoidPlan {
     into: f32,
     /// End position, kept exact.
     end: Length,
+    /// Time advanced past the end, s.
+    over: f32,
 }
 
 impl FastTrapezoidPlan {
@@ -516,6 +522,7 @@ impl FastTrapezoidPlan {
             dur: 0.0,
             into: 0.0,
             end,
+            over: 0.0,
         };
         plan.begin();
         plan
@@ -627,11 +634,18 @@ impl Plan for FastTrapezoidPlan {
             self.into = 0.0;
             self.begin();
         }
+        if self.is_done() {
+            self.over += left;
+        }
         self.state()
     }
 
     fn is_done(&self) -> bool {
         self.phase == Phase::Done
+    }
+
+    fn overshoot(&self) -> Duration {
+        Duration::from_secs_f32(self.over)
     }
 }
 

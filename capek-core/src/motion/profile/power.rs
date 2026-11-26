@@ -252,6 +252,7 @@ impl Builder {
             end,
             v_end,
             peak,
+            over: 0.0,
         }
     }
 }
@@ -399,6 +400,8 @@ pub struct PowerPlan {
     v_end: f32,
     /// Highest speed, mm/s.
     peak: f32,
+    /// Time advanced past the end, s.
+    over: f32,
 }
 
 impl PowerPlan {
@@ -513,11 +516,18 @@ impl Plan for PowerPlan {
                 self.sigma = *from;
             }
         }
+        if self.is_done() {
+            self.over += left;
+        }
         self.state()
     }
 
     fn is_done(&self) -> bool {
         self.i >= self.count
+    }
+
+    fn overshoot(&self) -> Duration {
+        Duration::from_secs_f32(self.over)
     }
 }
 
@@ -858,6 +868,8 @@ pub struct FastPowerPlan {
     end: Length,
     v_end: f32,
     peak_v: f32,
+    /// Time advanced past the end, s.
+    over: f32,
 }
 
 impl FastPowerPlan {
@@ -960,6 +972,7 @@ impl FastPowerPlan {
             end,
             v_end,
             peak_v,
+            over: 0.0,
         };
         plan.begin();
         plan
@@ -1073,11 +1086,18 @@ impl Plan for FastPowerPlan {
             self.into = 0.0;
             self.begin();
         }
+        if self.is_done() {
+            self.over += left;
+        }
         self.state()
     }
 
     fn is_done(&self) -> bool {
         self.phase == FastPhase::Done
+    }
+
+    fn overshoot(&self) -> Duration {
+        Duration::from_secs_f32(self.over)
     }
 }
 

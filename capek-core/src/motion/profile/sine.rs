@@ -256,6 +256,10 @@ impl Plan for SinePlan {
     fn is_done(&self) -> bool {
         self.t >= self.t2 + self.down.t
     }
+
+    fn overshoot(&self) -> Duration {
+        Duration::from_secs_f32((self.t - (self.t2 + self.down.t)).max(0.0))
+    }
 }
 
 #[cfg(test)]

@@ -470,6 +470,7 @@ pub trait Profile: Clone {
 pub trait Plan: Clone {
     fn advance(&mut self, dt: Duration) -> State;
     fn is_done(&self) -> bool;
+    fn overshoot(&self) -> Duration;               // time advanced past the end
 }
 ```
 
@@ -633,7 +634,11 @@ profile's speed `V` and acceleration `A` when
 `scale` is the root of that, with the highest `κ` and `κ′` in the span. `plan_speeds` sets each junction to the
 lower cruise speed of its two spans, then runs the backward and forward passes
 with each span's `profile.scaled(scale).reachable(...)`. Each resulting
-`Piece` is planned with `profile.scaled(piece.scale).plan(...)`.
+`Piece` is planned with `profile.scaled(piece.scale).plan(...)`. A
+`Trajectory` runs the pieces back to back as if they were one plan: when a
+piece ends partway through a time slice, `Plan::overshoot` says how much of the
+slice is left, and the next piece runs for exactly that long, so no time is
+lost at the joints.
 
 Profile speed and acceleration limits are therefore real wheel limits, for
 straight lines, turns and curves alike. Jerk is not scaled for the change in

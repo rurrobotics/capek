@@ -41,8 +41,9 @@
 //! assert_eq!(pieces[2].end_speed, 0.mm_per_s());
 //! ```
 
-use super::profile::Profile;
+use super::profile::{Plan, Profile, State};
 use crate::units::{Length, Speed};
+use core::time::Duration;
 use heapless::Vec;
 
 /// Most spans a single planned move holds: enough for a full route.
@@ -170,6 +171,91 @@ pub fn plan_speeds<P: Profile>(
         v = piece.end_speed;
     }
     pieces
+}
+
+/// Planned pieces run back to back, advanced in time like a single plan.
+///
+/// Each piece is planned when the previous one ends, from the state it ended
+/// in. When a piece ends partway through a time slice, the next one runs for
+/// the rest of it, so no time is lost at the joints.
+///
+/// ```
+/// use capek_core::motion::planner::{plan_speeds, Span, Trajectory};
+/// use capek_core::motion::profile::{Plan, State, Trapezoid};
+/// use capek_core::units::UnitExt;
+/// use core::time::Duration;
+///
+/// let profile = Trapezoid { max_speed: 400.mm_per_s(), accel: 1200.mm_per_s2() };
+/// let spans = [Span::new(300.mm()), Span { scale: 0.5, ..Span::new(300.mm()) }];
+/// let pieces = plan_speeds(&profile, &spans, 0.mm_per_s(), 0.mm_per_s());
+///
+/// let mut trajectory = Trajectory::new(profile, pieces, State::REST);
+/// let mut state = State::REST;
+/// while !trajectory.is_done() {
+///     state = trajectory.advance(Duration::from_millis(1));
+/// }
+/// assert_eq!(state, State::at(600.mm()));
+/// ```
+#[derive(Debug, Clone)]
+pub struct Trajectory<P: Profile> {
+    profile: P,
+    pieces: Vec<Piece, MAX_SPANS>,
+    /// Index of the next piece to plan.
+    next: usize,
+    /// The plan of the current piece, if one is running.
+    plan: Option<P::Plan>,
+    state: State,
+}
+
+impl<P: Profile> Trajectory<P> {
+    /// Runs `pieces` with `profile`, starting at `start`.
+    pub fn new(profile: P, pieces: Vec<Piece, MAX_SPANS>, start: State) -> Self {
+        Self {
+            profile,
+            pieces,
+            next: 0,
+            plan: None,
+            state: start,
+        }
+    }
+
+    /// Moves forward by `dt` and returns the state reached.
+    ///
+    /// Once every piece is done, it keeps returning the final state.
+    pub fn advance(&mut self, dt: Duration) -> State {
+        let mut left = dt;
+        loop {
+            let plan = match &mut self.plan {
+                Some(plan) => plan,
+                None => {
+                    let Some(piece) = self.pieces.get(self.next) else {
+                        return self.state;
+                    };
+                    self.next += 1;
+                    let scaled = self.profile.scaled(piece.scale);
+                    self.plan
+                        .insert(scaled.plan(self.state, piece.length, piece.end_speed))
+                }
+            };
+            self.state = plan.advance(left);
+            if !plan.is_done() {
+                return self.state;
+            }
+            // Carry the unused part of the slice into the next piece.
+            left = plan.overshoot();
+            self.plan = None;
+        }
+    }
+
+    /// Whether every piece has been run.
+    pub fn is_done(&self) -> bool {
+        self.plan.is_none() && self.next >= self.pieces.len()
+    }
+
+    /// The state reached so far.
+    pub fn state(&self) -> State {
+        self.state
+    }
 }
 
 fn min(a: Speed, b: Speed) -> Speed {
@@ -432,6 +518,35 @@ mod tests {
             &plan_speeds(&p, &spans, 0.mm_per_s(), 0.mm_per_s()),
         );
         assert!(fastest > 400.0 * 1.2, "{fastest}");
+    }
+
+    #[test]
+    fn trajectory_loses_no_time_at_joints() {
+        let path = tight_route();
+        let p = scurve();
+        let pieces = plan_route(&p, &path);
+        assert!(pieces.len() > 10);
+        let dt = Duration::from_millis(7);
+        let h = dt.as_secs_f32();
+        let mut trajectory = Trajectory::new(p, pieces, State::REST);
+        let mut prev = State::REST;
+        while !trajectory.is_done() {
+            let state = trajectory.advance(dt);
+            if trajectory.is_done() {
+                break;
+            }
+            // Over one slice the distance is the mean speed times the slice,
+            // to within what acceleration and jerk can change in it.
+            let moved = (state.s - prev.s).as_mm();
+            let expected = (state.v + prev.v).as_mm_per_s() / 2.0 * h;
+            assert!(
+                (moved - expected).abs() < 1200.0 * h * h,
+                "moved {moved} mm, expected {expected} mm at {:?}",
+                state.s
+            );
+            prev = state;
+        }
+        assert_eq!(trajectory.state(), State::at(path.length()));
     }
 
     #[test]
