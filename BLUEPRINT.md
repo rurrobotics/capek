@@ -462,7 +462,8 @@ pub enum Trigger<Q> { Below(Q), Above(Q), Changed, Error, Every }
 - `Below` and `Above` fire once when the value crosses the threshold, not on
   every sample. Using a lower `Below` and a higher `Above` gives hysteresis.
 - `Error` fires when the sensor stops returning readings, for example an
-  ultrasonic sensor with no echo.
+  unplugged HC-SR04 that gives no echo. Open space is not an error: with
+  nothing in range the HC-SR04 reads the far end of its range, 4 m.
 - Callbacks run inside the sensor task. They must be synchronous and short.
   They usually call `send` on a command mutex writer.
 
@@ -930,7 +931,7 @@ as work progresses.
 - [x] `feat(core): add time-sliced step generator`
 - [x] `feat(core): add driver traits and the Platform contract`
 - [x] `feat(core): add Stepper and Servo components`
-- [ ] `feat(core): add button, output and HC-SR04 components`
+- [x] `feat(core): add button, output and HC-SR04 components`
 - [ ] `feat(core): add sensor triggers`
 
 ### M2: RP platform

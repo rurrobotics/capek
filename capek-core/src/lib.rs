@@ -21,4 +21,4 @@ pub mod units;
 #[cfg(test)]
 mod mock;
 
-pub use components::{Servo, Stepper};
+pub use components::{Button, Hcsr04, Output, Servo, Stepper};
