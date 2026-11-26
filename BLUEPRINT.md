@@ -537,13 +537,17 @@ needs `max_speed` set to about 0.96 times ninja's value when `p` is 3.
 pub trait Path<const N: usize> {
     fn length(&self) -> Length;
     fn axes(&self, s: Length) -> [Length; N];      // where each axis is at s
+    fn end(&self) -> [Length; N] { self.axes(self.length()) }
 }
 ```
 
-For a differential drive:
+`s` runs from zero to `length()`, which is never negative; the path decides
+which way each axis moves. For a differential drive:
 
-- `Line(Length)` drives straight; negative is backwards.
-- `Turn(Angle)` spins in place.
+- `Line(Length)` drives straight; negative is backwards. It moves every axis
+  together, so it is a `Path<N>` for any `N` and also serves single axes.
+- `Turn::new(Angle, &Differential)` spins in place. It takes the geometry
+  because each wheel's distance depends on the track width.
 - `Route` follows waypoints.
 
 `Differential` holds the drive geometry: wheel diameter and track width. It
@@ -829,7 +833,7 @@ as work progresses.
 - [x] `feat(core): add Sine profile`
 - [x] `feat(core): add SCurve profile`
 - [x] `feat(core): add differential-drive kinematics and odometry`
-- [ ] `feat(core): add Path trait with line and turn`
+- [x] `feat(core): add Path trait with line and turn`
 - [ ] `feat(core): add waypoint routes with slopes`
 - [ ] `feat(core): add curvature-aware speed planner`
 - [ ] `feat(core): add time-sliced step generator`

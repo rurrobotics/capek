@@ -1,7 +1,7 @@
 //! Motion control.
 //!
 //! Motion is the combination of independent choices: a [`profile`] decides
-//! how fast to move along a path, a path decides where each axis is at each
+//! how fast to move along a path, a [`path`] decides where each axis is at each
 //! point along it, and a step strategy decides when step timings are
 //! computed. The time base shared by all axes is time itself, not steps.
 //! [`kinematics`] converts between the robot's motion and its wheels, and
@@ -25,4 +25,5 @@
 //! ```
 
 pub mod kinematics;
+pub mod path;
 pub mod profile;
