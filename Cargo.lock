@@ -108,6 +108,9 @@ dependencies = [
 name = "capek-core"
 version = "0.1.0"
 dependencies = [
+ "embassy-futures",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
  "heapless",
  "libm",
 ]

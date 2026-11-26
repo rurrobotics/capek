@@ -7,5 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+embedded-hal.workspace = true
+embedded-hal-async.workspace = true
 heapless.workspace = true
 libm = { version = "0.2.16", default-features = false }
+
+[dev-dependencies]
+embassy-futures.workspace = true

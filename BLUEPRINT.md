@@ -922,7 +922,7 @@ as work progresses.
 - [x] `feat(core): add curvature-aware speed planner`
 - [x] `feat(core): make routes curvature-continuous`
 - [x] `feat(core): add time-sliced step generator`
-- [ ] `feat(core): add driver traits and the Platform contract`
+- [x] `feat(core): add driver traits and the Platform contract`
 - [ ] `feat(core): add Stepper and Servo components`
 - [ ] `feat(core): add button, output and HC-SR04 components`
 - [ ] `feat(core): add sensor triggers`

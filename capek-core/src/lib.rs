@@ -14,4 +14,5 @@ pub mod driver;
 pub mod filter;
 pub mod motion;
 pub mod pid;
+pub mod platform;
 pub mod units;
