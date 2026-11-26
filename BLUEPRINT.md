@@ -475,9 +475,9 @@ Each profile is its own type with only the parameters it needs:
 |---|---|---|
 | `Constant { speed }` | none: jumps straight to `speed` and stops dead | closed form |
 | `Trapezoid { max_speed, accel }` | constant acceleration | closed form |
-| `FastTrapezoid { max_speed, accel }` | constant acceleration | per-step recurrence |
+| `FastTrapezoid::new(max_speed, accel)` | constant acceleration | per-step recurrence |
 | `Power { max_speed, accel, p }` | strong at rest, easing into cruise | numeric integration |
-| `FastPower { max_speed, accel, p }` | strong at rest, easing into cruise | per-step recurrence |
+| `FastPower::new(max_speed, accel, p)` | strong at rest, easing into cruise | per-step recurrence |
 | `Sine { max_speed, accel }` | acceleration rises and falls as a half sine | closed form |
 | `SCurve { max_speed, accel, jerk }` | jerk-limited, seven phases | closed form |
 
@@ -499,7 +499,8 @@ Each profile is its own type with only the parameters it needs:
   of `resolution`, which the parent component sets from its geometry through
   `Profile::set_resolution` (one wheel microstep for a `Drivetrain`); the
   method does nothing on the other profiles. `advance` interpolates between
-  increments.
+  increments. The resolution is a private field, so the `Fast` profiles are
+  built with `new` and start at 0.1 mm until a parent sets it.
 - `State` includes acceleration, so `stop()` works from any point, including
   the middle of an S-curve ramp. That is what lets every profile pause and
   replan.
@@ -511,7 +512,7 @@ Each profile is its own type with only the parameters it needs:
   requested end speed within that distance, it ends at the closest speed they
   allow, so a move never overshoots its target.
 
-Ninja's two profiles map to `FastTrapezoid` and `FastPower { p: 3.0 }`. Ninja's
+Ninja's two profiles map to `FastTrapezoid` and `FastPower` with `p` = 3. Ninja's
 `max_speed` for its power profile is the asymptote `v∞`, so the same motion
 needs `max_speed` set to about 0.96 times ninja's value when `p` is 3.
 
@@ -769,7 +770,7 @@ replaces ninja's `include!` of the firmware's packet file.
 | `actuators/extension.rs` | `LinearAxis` |
 | `actuators/gripper.rs` | `Gripper` |
 | `profiles/trapezoid.rs` | `FastTrapezoid` |
-| `profiles/power.rs` | `FastPower { p: 3.0 }`, with `max_speed` as the speed actually reached |
+| `profiles/power.rs` | `FastPower` with `p` = 3, with `max_speed` as the speed actually reached |
 | whole-move delay tables | the `Precomputed` strategy, or `run_table` |
 | `sensors/ultrasonic.rs` | the `Ultrasonic` component, waiting on edges instead of spinning |
 | `sensors/proximity.rs` and the aborting `select` | `Proximity` triggers sending `Stop` and `Start`; the move finishes after release |
@@ -804,7 +805,7 @@ as work progresses.
 - [x] `feat(core): add Speed, Acceleration and Jerk quantities`
 - [x] `feat(core): add profile traits and Trapezoid profile`
 - [x] `feat(core): add Constant profile`
-- [ ] `feat(core): add FastTrapezoid profile`
+- [x] `feat(core): add FastTrapezoid profile`
 - [ ] `feat(core): add Power profile`
 - [ ] `feat(core): add FastPower profile`
 - [ ] `feat(core): add Sine profile`

@@ -16,6 +16,7 @@
 //!
 //! - [`Constant`]: a fixed speed with no ramps.
 //! - [`Trapezoid`]: constant acceleration, computed in closed form.
+//! - [`FastTrapezoid`]: constant acceleration, computed per step.
 //!
 //! # Examples
 //!
@@ -54,7 +55,7 @@ mod constant;
 mod trapezoid;
 
 pub use constant::{Constant, ConstantPlan};
-pub use trapezoid::{Trapezoid, TrapezoidPlan};
+pub use trapezoid::{FastTrapezoid, FastTrapezoidPlan, Trapezoid, TrapezoidPlan};
 
 use crate::units::{Acceleration, Length, Speed};
 use core::time::Duration;
