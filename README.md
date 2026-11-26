@@ -48,15 +48,17 @@ The full architecture and the commit-by-commit plan of action are in
 ### Components and drivers
 
 - A **component** is what you write in a `robot!` block: `Stepper`, `Servo`,
-  `Button`, `Ultrasonic`, and mechanisms built from them, such as a
+  `Button`, `Hcsr04`, and mechanisms built from them, such as a
   `Drivetrain` from two `Stepper`s or a `Gripper` from a `Servo`. Components
   are platform-neutral and hold the logic that does not depend on hardware,
   such as steps per revolution or servo calibration.
 - A **driver** is the hardware primitive behind a component, supplied by the
   selected platform. On RP, a `Stepper` is driven through PIO and DMA.
-- In a `robot!` block the driver sits in its own `driver:` block, visually
-  separate from the component's fields. Steppers come in two wirings,
-  `StepDir` and `FourWire`, and `driver: YourDriver { .. }` plugs in your own.
+- In a `robot!` block every part of a component is a nested block, named by
+  its role: `sensor: Hcsr04 { .. }`, `servo: Servo { .. }`. Where the hardware
+  primitive is a real choice it sits in a `driver:` block: steppers come in two
+  wirings, `StepDir` and `FourWire`, servos run on hardware PWM, and
+  `driver: YourDriver { .. }` plugs in your own.
 - Each platform crate implements one `Platform` trait naming its drivers, so
   the compiler checks that a platform is complete.
 
@@ -150,7 +152,7 @@ capek::robot! {
 
     sensors {
         proximity: Proximity {
-            sensor: Ultrasonic { driver: Hcsr04 { trig: PIN_21, echo: PIN_19 } },
+            sensor: Hcsr04 { trig: PIN_21, echo: PIN_19 },
             filter: Ema::new(0.2),
             on: {
                 Below(60.mm()) => drive.send(DriveCommand::Stop),
@@ -162,7 +164,7 @@ capek::robot! {
 ```
 
 Uppercase identifiers such as `PIN_6` are peripherals. Nested `Type { .. }`
-blocks are child components. Everything else is an ordinary Rust expression.
+blocks are parts: child components, or drivers under `driver:`. Everything else is an ordinary Rust expression.
 Platform resources such as PIO state machines are allocated automatically.
 Everything the macro generates is public API, so you can also write the setup
 by hand.

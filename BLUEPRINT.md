@@ -94,7 +94,7 @@ capek-core/src/
 ├── pid.rs            Pid with limits, anti-windup, derivative filtering
 ├── trigger.rs        Trigger<Q>: Below, Above, Changed, Error, Every
 ├── platform.rs       Platform trait: the contract every platform crate fulfils
-├── driver.rs         StepperDriver, ServoDriver, StepWord
+├── driver.rs         StepperDriver, ServoDriver, PulseTimer, StepWord
 ├── command/
 │   ├── mod.rs        CommandMutex, Writer, Command, Status
 │   └── policy.rs     Policy; PerWriterHold, LastWins, Priority
@@ -118,7 +118,7 @@ capek-core/src/
 │   ├── stepper.rs    Stepper<D: StepperDriver>
 │   ├── servo.rs      Servo<D: ServoDriver>
 │   ├── gpio.rs       Button<I>, Output<O>
-│   ├── ultrasonic.rs Ultrasonic<O, I>, implements DistanceSensor
+│   ├── hcsr04.rs     Hcsr04<D: PulseTimer>, implements DistanceSensor
 │   ├── drivetrain.rs Drivetrain<L, R>
 │   ├── linear_axis.rs LinearAxis<S, H>
 │   ├── gripper.rs    Gripper<S>
@@ -132,7 +132,7 @@ Target layout of the other crates:
 ```
 capek/src/            facade: platform selection, component aliases, prelude
 capek-rp/src/         Rp (impl Platform), RpCtx, chip setup, PioStepDir, PioFourWire,
-                      PioServo, PwmServo, GPIO, UsbSerial
+                      PwmServo, PulseTimer, GPIO, UsbSerial
 capek-macros/src/     robot! parser and expansion, #[capek::main]
 capek-proto/src/      Envelope, Response, framing constants
 examples/             ninja (RP2350) and hybrid (RP2040)
@@ -143,7 +143,7 @@ examples/             ninja (RP2350) and hybrid (RP2040)
 ### Two layers
 
 A **component** is what you write in a `robot!` block: `Stepper`, `Servo`,
-`Button`, `Ultrasonic`, `Drivetrain`, and so on. Components live in
+`Button`, `Hcsr04`, `Drivetrain`, and so on. Components live in
 `capek-core`. They hold every piece of logic that does not depend on the
 hardware:
 
@@ -151,7 +151,8 @@ hardware:
   inversion, enable handling and position;
 - a `Servo` knows its pulse range, the angle that range covers and how long it
   takes to travel;
-- an `Ultrasonic` sensor knows how to time an echo and turn it into a distance.
+- an `Hcsr04` ultrasonic sensor knows its trigger pulse, the speed of sound,
+  its range and its timeout, and turns an echo time into a distance.
 
 A **driver** is the hardware primitive behind a component, supplied by the
 platform. It is kept as small as possible:
@@ -172,7 +173,15 @@ pub trait ServoDriver {
     fn set_pulse(&mut self, width: Duration);
     fn set_enabled(&mut self, on: bool);
 }
+
+pub trait PulseTimer {                             // trigger, then time the echo
+    async fn measure(&mut self, trigger: Duration, timeout: Duration) -> Option<Duration>;
+}
 ```
+
+A driver is named after what it does, not after a sensor family, so the types
+stay honest: `Hcsr04<D: PulseTimer>` is an ultrasonic sensor because of what
+`Hcsr04` knows, and the platform only times a pulse. Core never needs a clock.
 
 Simple I/O components use the `embedded-hal` and `embedded-hal-async` pin
 traits as their driver interface, so `Button<I: InputPin + Wait>` and
@@ -202,6 +211,7 @@ pub trait Platform {
     type StepDir: StepperDriver;
     type FourWire: StepperDriver;
     type Servo: ServoDriver;
+    type PulseTimer: PulseTimer;
     type Input: InputPin + Wait;
     type Output: OutputPin;
     type UsbSerial: Transport;
@@ -209,7 +219,8 @@ pub trait Platform {
 ```
 
 A platform crate that leaves something out fails to compile in its own crate,
-so the contract is checked rather than hoped for.
+so the contract is checked rather than hoped for. `Ctx` and `UsbSerial` join
+the trait together with their own traits, in M3 and M5.
 
 ### Selecting a platform
 
@@ -228,7 +239,7 @@ pub type Stepper<D = StepDir>                  = capek_core::Stepper<D>;
 pub type Servo<D = <P as Platform>::Servo>     = capek_core::Servo<D>;
 pub type Button                                = capek_core::Button<<P as Platform>::Input>;
 pub type Output                                = capek_core::Output<<P as Platform>::Output>;
-pub type Ultrasonic = capek_core::Ultrasonic<<P as Platform>::Output, <P as Platform>::Input>;
+pub type Hcsr04                                = capek_core::Hcsr04<<P as Platform>::PulseTimer>;
 pub type Drivetrain<L = Stepper, R = Stepper>  = capek_core::Drivetrain<L, R>;
 ```
 
@@ -241,11 +252,34 @@ pub type Drivetrain<L = Stepper, R = Stepper>  = capek_core::Drivetrain<L, R>;
 Every alias is a concrete type, so components owned directly by the robot
 struct have nameable types.
 
-### Configuring a component and its driver
+### Configuring a component and its parts
 
-Component fields and driver fields are visually separate. Component fields
-sit directly in the block; the driver is a nested `driver:` block whose name
-selects the driver kind:
+A component's own settings sit directly in its block. Every part it is built
+from is a nested block: the field name says the part's role, and the block
+name says which concrete type fills it. Each nested block fills one of the
+component's generic parameters.
+
+```rust
+proximity: Proximity { period: 60.ms(), sensor: Hcsr04 { trig: PIN_21, echo: PIN_19 } },
+gripper:   Gripper   { open: 50.deg(),  servo:  Servo  { driver: PwmServo { pin: PIN_15 } } },
+extension: LinearAxis { stepper: Stepper { .. }, home: Button { pin: PIN_8, pull: Up } },
+```
+
+A part is either another core component, such as the `Hcsr04` in a
+`Proximity`, or, in a `driver:` block, a hardware primitive from the platform
+crate. A component has a `driver:` slot only where two different primitives
+can sit under exactly the same logic:
+
+| Component | `driver:` choices |
+|---|---|
+| `Stepper` | `StepDir`, `FourWire`, or your own, such as `my::Tmc2209` |
+| `Servo` | `PwmServo`, or your own, such as a serial bus servo |
+
+Every other component builds its one obvious primitive from its own fields:
+`Button { pin, pull }`, `Output { pin }`, `Hcsr04 { trig, echo }`. The macro
+picks the platform's input pin, output pin or `PulseTimer` for it.
+
+The stepper's driver choices look like this:
 
 ```rust
 left: Stepper {
@@ -273,15 +307,20 @@ lift: Stepper {
   platform-only fields. On RP these are `pio`, `sm` and `dma`, and they belong
   inside the `driver:` block. When they are left out, the platform allocates
   the resources itself.
-- Components with a single obvious driver, such as `Servo`, `Button` or
-  `Ultrasonic`, still use a `driver:` block, so the split looks the same
-  everywhere.
+- One rule covers every nested block: the macro builds each part before the
+  component that contains it, and a part that does not fit its slot is an
+  ordinary type error pointing at that block.
 
 ### The RP platform
 
 - `PioStepDir` and `PioFourWire` drive steppers through PIO. Words reach the
   PIO through chunked DMA, so the CPU never times a pulse.
-- `PioServo` and `PwmServo` drive servos, through PIO or a hardware PWM slice.
+- `PwmServo` drives a servo from a hardware PWM slice, with no PIO involved:
+  8 slices on the RP2040 and 12 on the RP2350, each with two outputs that
+  share one frequency. Every GPIO maps to one fixed slice and output. Servos
+  on hardware PWM leave the PIO state machines to the steppers; ninja's
+  servos used PIO through `PioPwm`.
+- `PulseTimer` triggers and times an echo with `embassy_time`.
 - `RpCtx` owns the PIO blocks, loads each PIO program once, and hands out state
   machines and DMA channels in order.
 - Each driver declares how many state machines and DMA channels it needs.
@@ -423,7 +462,7 @@ pub enum Trigger<Q> { Below(Q), Above(Q), Changed, Error, Every }
 
 ```rust
 proximity: Proximity {
-    sensor: Ultrasonic { driver: Hcsr04 { trig: PIN_21, echo: PIN_19 } },
+    sensor: Hcsr04 { trig: PIN_21, echo: PIN_19 },
     filter: Ema::new(0.2),
     period: 60.ms(),
     on: {
@@ -434,8 +473,9 @@ proximity: Proximity {
 },
 ```
 
-`Proximity` accepts any component implementing `DistanceSensor`, so a
-time-of-flight sensor can replace the ultrasonic one later.
+`Proximity` is a role: it accepts any component implementing `DistanceSensor`,
+so a time-of-flight sensor can replace the HC-SR04 later without touching the
+triggers.
 
 ## Motion control
 
@@ -720,8 +760,8 @@ capek::robot! {
         },
         gripper: Gripper {                           // no commands: a direct field of the robot
             servo: Servo {
-                min_pulse: 320.us(), max_pulse: 1200.us(), period: 1786.us(),
-                driver: PwmServo { pin: PIN_15 },
+                min_pulse: 320.us(), max_pulse: 1200.us(),
+                driver: PwmServo { pin: PIN_15, period: 1786.us() },
             },
             open: 50.deg(),
             close: 153.deg(),
@@ -731,13 +771,13 @@ capek::robot! {
                 steps_per_rev: 400,
                 driver: StepDir { step: PIN_17, dir: PIN_18, en: PIN_13 },
             },
-            home: Button { driver: Input { pin: PIN_8, pull: Up } },
+            home: Button { pin: PIN_8, pull: Up },
         },
     }
 
     sensors {
         proximity: Proximity {
-            sensor: Ultrasonic { driver: Hcsr04 { trig: PIN_21, echo: PIN_19 } },
+            sensor: Hcsr04 { trig: PIN_21, echo: PIN_19 },
             filter: Ema::new(0.2),
             period: 60.ms(),
             on: {
@@ -748,7 +788,7 @@ capek::robot! {
         },
         starter: Starter {
             active: Low,
-            input: Button { driver: Input { pin: PIN_16, pull: Up } },
+            input: Button { pin: PIN_16, pull: Up },
         },
     }
 
@@ -760,14 +800,14 @@ capek::robot! {
 
 A field value is one of three things, decided by its shape:
 
-- A nested `Type { .. }` block is a child component, built first and passed to
-  its parent. A `driver: Kind { .. }` block is the component's driver.
+- A nested `Type { .. }` block is a part: a child component or, under
+  `driver:`, a driver. It is built first and passed to its parent.
 - An all-caps identifier such as `PIN_6`, `PIO1` or `DMA_CH1` is a peripheral
   and becomes `p.NAME`.
 - Anything else is an ordinary Rust expression.
 
 Driver fields go in the `driver:` block, component fields beside it, as
-described in [Configuring a component and its driver](#configuring-a-component-and-its-driver).
+described in [Configuring a component and its parts](#configuring-a-component-and-its-parts).
 Defaults fill in whatever is not listed.
 
 `commands: <name>` refers to a mutex from the `commands` block and makes the
@@ -831,14 +871,14 @@ replaces ninja's `include!` of the firmware's packet file.
 | ninja | capek |
 |---|---|
 | `actuators/stepper.rs` | the `Stepper` component with RP's `PioStepDir` driver |
-| `actuators/servo.rs` | the `Servo` component with RP's `PioServo` driver |
+| `actuators/servo.rs` | the `Servo` component with RP's `PwmServo` driver, on hardware PWM instead of PIO |
 | `actuators/drivetrain.rs` | `Drivetrain`, combining two steppers with a profile, path and step strategy |
 | `actuators/extension.rs` | `LinearAxis` |
 | `actuators/gripper.rs` | `Gripper` |
 | `profiles/trapezoid.rs` | `FastTrapezoid` |
 | `profiles/power.rs` | `FastPower` with `p` = 3, with `max_speed` as the speed actually reached |
 | whole-move delay tables | the `Precomputed` strategy, or `run_table` |
-| `sensors/ultrasonic.rs` | the `Ultrasonic` component, waiting on edges instead of spinning |
+| `sensors/ultrasonic.rs` | the `Hcsr04` component, timed by the platform's `PulseTimer` instead of spinning |
 | `sensors/proximity.rs` and the aborting `select` | `Proximity` triggers sending `Stop` and `Start`; the move finishes after release |
 | `tasks/receiver.rs` and the global signals | the link task and `RobotCommand` |
 | `tasks/actuator.rs` | gone: commanded components are tasks, owned ones are fields of the robot |
@@ -884,7 +924,7 @@ as work progresses.
 - [x] `feat(core): add time-sliced step generator`
 - [ ] `feat(core): add driver traits and the Platform contract`
 - [ ] `feat(core): add Stepper and Servo components`
-- [ ] `feat(core): add button, output and ultrasonic components`
+- [ ] `feat(core): add button, output and HC-SR04 components`
 - [ ] `feat(core): add sensor triggers`
 
 ### M2: RP platform
@@ -893,7 +933,7 @@ as work progresses.
 - [ ] `feat(rp): add RpCtx, chip setup and resource allocation`
 - [ ] `feat(rp): add PIO step/dir stepper driver`
 - [ ] `feat(rp): add PIO four-wire stepper driver`
-- [ ] `feat(rp): add PIO and PWM servo drivers`
+- [ ] `feat(rp): add PWM servo driver and pulse timer`
 - [ ] `feat(rp): implement Platform for RP`
 - [ ] `feat: add component aliases for the selected platform`
 - [ ] `feat(examples): add stepper examples for RP2040 and RP2350`
@@ -937,6 +977,8 @@ as work progresses.
 ### Later
 
 - A second platform crate, to prove that switching is seamless.
+- `PioServo`, a PIO servo driver for pins whose PWM slice is already taken or
+  needs a different period.
 - Following routes in reverse.
 - Blending separate commands without stopping between them.
 - Wi-Fi link through cyw43 and embassy-net.
