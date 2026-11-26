@@ -512,7 +512,13 @@ Each profile is its own type with only the parameters it needs:
   brakes at a constant `accel` when it starts above `max_speed`.
 - `State` includes acceleration, so `stop()` works from any point, including
   the middle of an S-curve ramp. That is what lets every profile pause and
-  replan.
+  replan. `SCurve` is the one profile that starts from that acceleration, so
+  it stays continuous through a stop or replan. Its building block is a
+  closed-form ramp from any speed and acceleration to a speed at rest in
+  acceleration, and the peak speed is found by bisection on ramp distances.
+  A starting acceleration beyond `accel`, or a deceleration too strong to
+  fade before the speed reaches zero, is clamped. A move too short to bring
+  the acceleration to zero ends at its distance still accelerating.
 - Profiles plan between non-zero speeds, which the route planner needs. The
   recurrences start from the step index that matches the start speed.
 - The path coordinate only moves forward: distances and speeds are
@@ -818,7 +824,7 @@ as work progresses.
 - [x] `feat(core): add Power profile`
 - [x] `feat(core): add FastPower profile`
 - [x] `feat(core): add Sine profile`
-- [ ] `feat(core): add SCurve profile`
+- [x] `feat(core): add SCurve profile`
 - [ ] `feat(core): add differential-drive kinematics and odometry`
 - [ ] `feat(core): add Path trait with line and turn`
 - [ ] `feat(core): add waypoint routes with slopes`

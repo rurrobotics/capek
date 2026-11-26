@@ -7,7 +7,7 @@ use core::time::Duration;
 ///
 /// Each speed change follows `a(t) = accel·sin(π·t / T)`, so acceleration
 /// starts and ends at zero and never jumps, without the cost of planning an
-/// `SCurve`. Like [`Trapezoid`](super::Trapezoid), a move is a
+/// [`SCurve`](super::SCurve). Like [`Trapezoid`](super::Trapezoid), a move is a
 /// ramp up, a cruise and a ramp down, or two ramps when it is too short to
 /// reach `max_speed`. Every state is computed in closed form.
 ///
@@ -16,7 +16,8 @@ use core::time::Duration;
 /// as a trapezoid with the same peak acceleration.
 ///
 /// The acceleration in the state a plan starts from is ignored, so replanning
-/// in the middle of a ramp makes acceleration jump. `SCurve` takes it into
+/// in the middle of a ramp makes acceleration jump. [`SCurve`](super::SCurve)
+/// takes it into
 /// account.
 ///
 /// ```

@@ -20,6 +20,7 @@
 //! - [`Power`]: ninja's power curve, strong at rest and easing into cruise.
 //! - [`FastPower`]: the power curve, computed per step.
 //! - [`Sine`]: acceleration rises and falls as a half sine.
+//! - [`SCurve`]: jerk-limited, continuous acceleration even when replanning.
 //!
 //! # Examples
 //!
@@ -56,11 +57,13 @@
 
 mod constant;
 mod power;
+mod scurve;
 mod sine;
 mod trapezoid;
 
 pub use constant::{Constant, ConstantPlan};
 pub use power::{FastPower, FastPowerPlan, Power, PowerPlan};
+pub use scurve::{SCurve, SCurvePlan};
 pub use sine::{Sine, SinePlan};
 pub use trapezoid::{FastTrapezoid, FastTrapezoidPlan, Trapezoid, TrapezoidPlan};
 
