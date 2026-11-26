@@ -17,6 +17,7 @@
 //! - [`Constant`]: a fixed speed with no ramps.
 //! - [`Trapezoid`]: constant acceleration, computed in closed form.
 //! - [`FastTrapezoid`]: constant acceleration, computed per step.
+//! - [`Power`]: ninja's power curve, strong at rest and easing into cruise.
 //!
 //! # Examples
 //!
@@ -52,9 +53,11 @@
 //! ```
 
 mod constant;
+mod power;
 mod trapezoid;
 
 pub use constant::{Constant, ConstantPlan};
+pub use power::{Power, PowerPlan};
 pub use trapezoid::{FastTrapezoid, FastTrapezoidPlan, Trapezoid, TrapezoidPlan};
 
 use crate::units::{Acceleration, Length, Speed};

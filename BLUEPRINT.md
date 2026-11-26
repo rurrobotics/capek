@@ -492,6 +492,10 @@ Each profile is its own type with only the parameters it needs:
   starts at full `accel` and eases into cruise; larger `p` eases later and
   more sharply. The curve only approaches `v∞`, so, like ninja, the ramp ends
   at `u = (p + 2) / 2`, and `v∞` is chosen so that this point is `max_speed`.
+  Time along the curve has no closed form: with `σ = √u` it stays finite at
+  rest, so durations come from Simpson's rule and `advance` integrates `σ`
+  with fourth-order Runge-Kutta. A plan that starts above `max_speed` brakes
+  at a constant `accel` until it meets the curve.
 - `Sine` has no acceleration jumps at the ends of a ramp, without the cost
   of planning an S-curve.
 - The `Fast` profiles run David Austin's per-step recurrence, which avoids
@@ -806,7 +810,7 @@ as work progresses.
 - [x] `feat(core): add profile traits and Trapezoid profile`
 - [x] `feat(core): add Constant profile`
 - [x] `feat(core): add FastTrapezoid profile`
-- [ ] `feat(core): add Power profile`
+- [x] `feat(core): add Power profile`
 - [ ] `feat(core): add FastPower profile`
 - [ ] `feat(core): add Sine profile`
 - [ ] `feat(core): add SCurve profile`
