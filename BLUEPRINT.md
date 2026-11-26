@@ -462,6 +462,7 @@ pub trait Profile: Clone {
     fn stop(&self, from: State) -> Self::Plan;     // shortest stop the limits allow
     fn set_resolution(&mut self, resolution: Length) {}   // used by Fast profiles
     fn max_speed(&self) -> Speed;
+    fn max_accel(&self) -> Acceleration;             // infinite for Constant
     fn scaled(&self, factor: f32) -> Self;           // every limit times factor
     fn reachable(&self, from: Speed, distance: Length) -> Speed;
 }

@@ -132,6 +132,10 @@ impl Profile for Sine {
         }
     }
 
+    fn max_accel(&self) -> Acceleration {
+        self.accel
+    }
+
     fn max_speed(&self) -> Speed {
         self.max_speed
     }

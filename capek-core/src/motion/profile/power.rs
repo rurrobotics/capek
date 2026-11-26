@@ -340,6 +340,10 @@ impl Profile for Power {
         b.finish(Length::mm(s0 + d), 0.0, v0)
     }
 
+    fn max_accel(&self) -> Acceleration {
+        self.accel
+    }
+
     fn max_speed(&self) -> Speed {
         self.max_speed
     }
@@ -765,6 +769,10 @@ impl Profile for FastPower {
 
     fn set_resolution(&mut self, resolution: Length) {
         self.resolution = resolution;
+    }
+
+    fn max_accel(&self) -> Acceleration {
+        self.accel
     }
 
     fn max_speed(&self) -> Speed {

@@ -62,6 +62,10 @@ impl Profile for Constant {
         }
     }
 
+    fn max_accel(&self) -> Acceleration {
+        Acceleration::mm_per_s2(f32::INFINITY)
+    }
+
     fn max_speed(&self) -> Speed {
         self.speed
     }

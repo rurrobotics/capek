@@ -422,6 +422,10 @@ impl Profile for SCurve {
         b.finish(State::at(Length::mm(s0 + ramps.dist())), peak)
     }
 
+    fn max_accel(&self) -> Acceleration {
+        self.accel
+    }
+
     fn max_speed(&self) -> Speed {
         self.max_speed
     }

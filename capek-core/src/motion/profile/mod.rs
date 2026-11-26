@@ -172,6 +172,20 @@ pub trait Profile: Clone {
     /// ```
     fn max_speed(&self) -> Speed;
 
+    /// The highest acceleration a plan uses.
+    ///
+    /// A profile whose speed jumps, such as [`Constant`], reports an infinite
+    /// acceleration.
+    ///
+    /// ```
+    /// use capek_core::motion::profile::{Profile, Trapezoid};
+    /// use capek_core::units::UnitExt;
+    ///
+    /// let profile = Trapezoid { max_speed: 400.mm_per_s(), accel: 1200.mm_per_s2() };
+    /// assert_eq!(profile.max_accel(), 1200.mm_per_s2());
+    /// ```
+    fn max_accel(&self) -> Acceleration;
+
     /// The same profile with every limit (speed, acceleration and jerk)
     /// multiplied by `factor`.
     ///
