@@ -220,7 +220,7 @@ impl Plan for TrapezoidPlan {
 }
 
 /// Resolution a Fast profile uses until a parent component sets one.
-const DEFAULT_RESOLUTION: Length = Length::mm(0.1);
+pub(super) const DEFAULT_RESOLUTION: Length = Length::mm(0.1);
 
 /// [`Trapezoid`] computed per step with David Austin's recurrence, as ninja
 /// does.
@@ -317,7 +317,7 @@ impl FastTrapezoid {
 
 /// Index of the increment the recurrence is at when moving at `v`: the
 /// number of increments needed to reach `v` from rest.
-fn index(v: f32, a: f32, res: f32) -> u32 {
+pub(super) fn index(v: f32, a: f32, res: f32) -> u32 {
     libm::roundf(v * v / (2.0 * a * res)) as u32
 }
 
@@ -325,7 +325,7 @@ fn index(v: f32, a: f32, res: f32) -> u32 {
 ///
 /// From rest this is Austin's corrected first delay, `0.676·c0`. Further up
 /// the recurrence matches the exact `c0·(√(n+1) − √n)`, which is used instead.
-fn start_delay(n: u32, a: f32, res: f32) -> f32 {
+pub(super) fn start_delay(n: u32, a: f32, res: f32) -> f32 {
     let c0 = libm::sqrtf(2.0 * res / a);
     if n == 0 {
         0.676 * c0

@@ -504,7 +504,9 @@ Each profile is its own type with only the parameters it needs:
   `Profile::set_resolution` (one wheel microstep for a `Drivetrain`); the
   method does nothing on the other profiles. `advance` interpolates between
   increments. The resolution is a private field, so the `Fast` profiles are
-  built with `new` and start at 0.1 mm until a parent sets it.
+  built with `new` and start at 0.1 mm until a parent sets it. `FastPower`
+  uses ninja's variant of the recurrence, with a power term, and like `Power`
+  brakes at a constant `accel` when it starts above `max_speed`.
 - `State` includes acceleration, so `stop()` works from any point, including
   the middle of an S-curve ramp. That is what lets every profile pause and
   replan.
@@ -811,7 +813,7 @@ as work progresses.
 - [x] `feat(core): add Constant profile`
 - [x] `feat(core): add FastTrapezoid profile`
 - [x] `feat(core): add Power profile`
-- [ ] `feat(core): add FastPower profile`
+- [x] `feat(core): add FastPower profile`
 - [ ] `feat(core): add Sine profile`
 - [ ] `feat(core): add SCurve profile`
 - [ ] `feat(core): add differential-drive kinematics and odometry`
