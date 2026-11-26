@@ -313,8 +313,7 @@ mod tests {
     #[test]
     fn corner_speed_is_zero() {
         let path = tight_route();
-        let spans = path.spans();
-        let pieces = plan_speeds(&scurve(), &spans, 0.mm_per_s(), 0.mm_per_s());
+        let pieces = plan_route(&scurve(), &path);
         let turns: std::vec::Vec<_> = path
             .segments()
             .filter(|s| s.kind == SegmentKind::Turn)
@@ -336,7 +335,7 @@ mod tests {
     #[test]
     fn no_wheel_exceeds_its_limit_on_tight_curves() {
         let path = tight_route();
-        let spans = path.spans();
+        let spans = path.spans(&trapezoid());
         assert!(
             spans.iter().any(|s| s.scale < 0.7),
             "the route should be tight"
@@ -344,20 +343,12 @@ mod tests {
         for (name, fastest, gap) in [
             {
                 let p = trapezoid();
-                let (f, g) = drive_along(
-                    &p,
-                    &path,
-                    &plan_speeds(&p, &spans, 0.mm_per_s(), 0.mm_per_s()),
-                );
+                let (f, g) = drive_along(&p, &path, &plan_route(&p, &path));
                 ("trapezoid", f, g)
             },
             {
                 let p = scurve();
-                let (f, g) = drive_along(
-                    &p,
-                    &path,
-                    &plan_speeds(&p, &spans, 0.mm_per_s(), 0.mm_per_s()),
-                );
+                let (f, g) = drive_along(&p, &path, &plan_route(&p, &path));
                 ("scurve", f, g)
             },
         ] {
@@ -369,16 +360,72 @@ mod tests {
         }
     }
 
+    /// The highest wheel acceleration, and where, driving the pieces along
+    /// `path`.
+    ///
+    /// Each wheel's acceleration is `a·dw/ds + v²·d²w/ds²`, from the plan's
+    /// speed and acceleration and the path's geometry, so that it does not
+    /// depend on how the plans are stitched together in time.
+    fn wheel_accel<P: Profile>(profile: &P, path: &RoutePath, pieces: &[Piece]) -> (f32, Length) {
+        let h = 0.5;
+        let mut state = State::REST;
+        let mut worst = (0.0_f32, 0.mm());
+        for piece in pieces {
+            let mut plan = profile
+                .scaled(piece.scale)
+                .plan(state, piece.length, piece.end_speed);
+            while !plan.is_done() {
+                state = plan.advance(DT);
+                // Keep the stencil inside one segment: at the stops around a
+                // turn the wheels change direction, which is fine at rest.
+                let seg = path
+                    .segments()
+                    .filter(|g| g.start <= state.s)
+                    .last()
+                    .unwrap();
+                let (lo, hi) = (seg.start.as_mm() + h, (seg.start + seg.length).as_mm() - h);
+                let s = state.s.as_mm().clamp(lo, hi.max(lo));
+                let [a, b, c] = [s - h, s, s + h].map(|x| path.axes(x.mm()));
+                for k in 0..2 {
+                    let d1 = (c[k] - a[k]).as_mm() / (2.0 * h);
+                    let d2 = (c[k] - b[k] * 2.0 + a[k]).as_mm() / (h * h);
+                    let (v, acc) = (state.v.as_mm_per_s(), state.a.as_mm_per_s2());
+                    let wheel = (acc * d1 + v * v * d2).abs();
+                    if wheel > worst.0 {
+                        worst = (wheel, state.s);
+                    }
+                }
+            }
+        }
+        worst
+    }
+
+    /// Plans `path` for `profile` from rest to rest.
+    fn plan_route<P: Profile>(profile: &P, path: &RoutePath) -> Vec<Piece, MAX_SPANS> {
+        plan_speeds(profile, &path.spans(profile), 0.mm_per_s(), 0.mm_per_s())
+    }
+
+    #[test]
+    fn no_wheel_exceeds_its_acceleration_on_tight_curves() {
+        let path = tight_route();
+        let p = trapezoid();
+        let (worst, at) = wheel_accel(&p, &path, &plan_route(&p, &path));
+        assert!(worst <= 1200.0 * 1.03, "trapezoid: {worst} mm/s² at {at}");
+        let p = scurve();
+        let (worst, at) = wheel_accel(&p, &path, &plan_route(&p, &path));
+        assert!(worst <= 1200.0 * 1.03, "scurve: {worst} mm/s² at {at}");
+    }
+
     #[test]
     fn without_scaling_the_outer_wheel_would_be_too_fast() {
         // The same route planned as if it were straight.
         let path = tight_route();
+        let p = trapezoid();
         let spans: std::vec::Vec<_> = path
-            .spans()
+            .spans(&p)
             .iter()
             .map(|s| Span { scale: 1.0, ..*s })
             .collect();
-        let p = trapezoid();
         let (fastest, _) = drive_along(
             &p,
             &path,

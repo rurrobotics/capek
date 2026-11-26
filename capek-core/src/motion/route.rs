@@ -3,10 +3,12 @@
 //! A [`Route`] is a list of [`Waypoint`]s. [`RoutePath::new`] turns it into a
 //! [`Path`], starting from the robot's current [`Pose`]:
 //!
-//! - The segment between two waypoints is a cubic Hermite curve whose end
+//! - The segment between two waypoints is a quintic Hermite curve whose end
 //!   tangents follow the waypoints' slopes. A missing slope takes the
 //!   direction of the straight line between the two waypoints, so a segment
 //!   with no slope at either end is exactly a straight line.
+//! - Curves have no curvature at their ends, so curvature never jumps at a
+//!   waypoint. A jump in curvature would be a jump in wheel speed.
 //! - A waypoint with a slope is passed smoothly. At a waypoint without one
 //!   where the route bends, the robot stops and turns in place.
 //! - If the first segment does not leave along the current heading, the robot
@@ -46,6 +48,7 @@
 use super::kinematics::{Differential, Pose};
 use super::path::Path;
 use super::planner::{MAX_SPANS, Span};
+use super::profile::Profile;
 use crate::units::{Angle, Length};
 use core::f32::consts::PI;
 use heapless::Vec;
@@ -142,18 +145,21 @@ pub struct RouteSegment {
     pub length: Length,
 }
 
-/// Arc length and heading sampled along a Hermite curve.
+/// Arc length, heading and curvature sampled along a curve.
 #[derive(Debug, Clone, PartialEq)]
 struct Table {
     /// Arc length from the start of the curve, mm.
     s: [f32; SAMPLES + 1],
     /// Heading relative to the start of the curve, unwrapped, rad.
     heading: [f32; SAMPLES + 1],
+    /// Curvature, the rate of change of heading with arc length, 1/mm.
+    kappa: [f32; SAMPLES + 1],
 }
 
 impl Table {
-    /// Heading change at arc length `s`, interpolated linearly.
-    fn heading_at(&self, s: f32) -> f32 {
+    /// The sample interval containing `s` and the fraction of the way
+    /// through it.
+    fn locate(&self, s: f32) -> (usize, f32) {
         // Index of the last sample at or before `s`.
         let i = self.s.partition_point(|&x| x <= s).clamp(1, SAMPLES) - 1;
         let span = self.s[i + 1] - self.s[i];
@@ -162,19 +168,75 @@ impl Table {
         } else {
             0.0
         };
-        self.heading[i] + f * (self.heading[i + 1] - self.heading[i])
+        (i, f)
+    }
+
+    /// Heading change at arc length `s`.
+    ///
+    /// Interpolated with a cubic Hermite in arc length whose slopes are the
+    /// sampled curvatures, so that curvature stays continuous between
+    /// samples. A linear interpolation would make it a staircase, and every
+    /// step a jump in wheel speed.
+    fn heading_at(&self, s: f32) -> f32 {
+        let (i, f) = self.locate(s);
+        let h = self.s[i + 1] - self.s[i];
+        let (f2, f3) = (f * f, f * f * f);
+        (2.0 * f3 - 3.0 * f2 + 1.0) * self.heading[i]
+            + (f3 - 2.0 * f2 + f) * h * self.kappa[i]
+            + (-2.0 * f3 + 3.0 * f2) * self.heading[i + 1]
+            + (f3 - f2) * h * self.kappa[i + 1]
+    }
+
+    /// The highest curvature and rate of change of curvature, without their
+    /// signs, between arc lengths `start` and `end`.
+    fn extremes(&self, start: f32, end: f32) -> (f32, f32) {
+        // Curvature is piecewise quadratic, so a few points per sample
+        // interval find its extremes and steepest slopes closely.
+        const STEPS: usize = 4 * SAMPLES / CURVE_SPANS;
+        let h = (end - start) / STEPS as f32;
+        let (mut kappa, mut rate): (f32, f32) = (0.0, 0.0);
+        let mut prev = self.kappa_at(start);
+        for i in 1..=STEPS {
+            let k = self.kappa_at(start + h * i as f32);
+            kappa = kappa.max(libm::fabsf(k)).max(libm::fabsf(prev));
+            if h > 0.0 {
+                rate = rate.max(libm::fabsf(k - prev) / h);
+            }
+            prev = k;
+        }
+        (kappa, rate)
+    }
+
+    /// Curvature at arc length `s`: the derivative of [`heading_at`].
+    ///
+    /// [`heading_at`]: Self::heading_at
+    fn kappa_at(&self, s: f32) -> f32 {
+        let (i, f) = self.locate(s);
+        let h = self.s[i + 1] - self.s[i];
+        if h <= 0.0 {
+            return self.kappa[i];
+        }
+        let f2 = f * f;
+        ((6.0 * f2 - 6.0 * f) * self.heading[i] + (6.0 * f - 6.0 * f2) * self.heading[i + 1]) / h
+            + (3.0 * f2 - 4.0 * f + 1.0) * self.kappa[i]
+            + (3.0 * f2 - 2.0 * f) * self.kappa[i + 1]
     }
 }
 
-/// A cubic Hermite curve with tangents as long as its chord.
-struct Hermite {
+/// A quintic Hermite curve with tangents as long as its chord and no
+/// curvature at either end.
+///
+/// With zero second derivative at the ends, curvature is zero where the curve
+/// meets the next segment, so it never jumps at a waypoint: not between a
+/// curve and a straight line, nor between two curves.
+struct Quintic {
     p0: [f32; 2],
     p1: [f32; 2],
     t0: [f32; 2],
     t1: [f32; 2],
 }
 
-impl Hermite {
+impl Quintic {
     fn new(p0: [f32; 2], p1: [f32; 2], a0: f32, a1: f32) -> Self {
         let len = libm::hypotf(p1[0] - p0[0], p1[1] - p0[1]);
         Self {
@@ -185,22 +247,51 @@ impl Hermite {
         }
     }
 
-    /// Derivative of the position with respect to the parameter `t`.
-    fn velocity(&self, t: f32) -> [f32; 2] {
-        let h00 = 6.0 * t * t - 6.0 * t;
-        let h10 = 3.0 * t * t - 4.0 * t + 1.0;
-        let h01 = -h00;
-        let h11 = 3.0 * t * t - 2.0 * t;
-        let mut v = [0.0; 2];
-        for (k, out) in v.iter_mut().enumerate() {
-            *out = h00 * self.p0[k] + h10 * self.t0[k] + h01 * self.p1[k] + h11 * self.t1[k];
+    /// Combines the endpoints and tangents with basis weights.
+    fn combine(&self, w: [f32; 4]) -> [f32; 2] {
+        let mut out = [0.0; 2];
+        for (k, o) in out.iter_mut().enumerate() {
+            *o = w[0] * self.p0[k] + w[1] * self.t0[k] + w[2] * self.t1[k] + w[3] * self.p1[k];
         }
-        v
+        out
+    }
+
+    /// First derivative of the position with respect to the parameter `t`.
+    fn velocity(&self, t: f32) -> [f32; 2] {
+        let (t2, t3, t4) = (t * t, t * t * t, t * t * t * t);
+        let h0 = -30.0 * t2 + 60.0 * t3 - 30.0 * t4;
+        self.combine([
+            h0,
+            1.0 - 18.0 * t2 + 32.0 * t3 - 15.0 * t4,
+            -12.0 * t2 + 28.0 * t3 - 15.0 * t4,
+            -h0,
+        ])
+    }
+
+    /// Second derivative of the position with respect to `t`.
+    fn acceleration(&self, t: f32) -> [f32; 2] {
+        let (t2, t3) = (t * t, t * t * t);
+        let h0 = -60.0 * t + 180.0 * t2 - 120.0 * t3;
+        self.combine([
+            h0,
+            -36.0 * t + 96.0 * t2 - 60.0 * t3,
+            -24.0 * t + 84.0 * t2 - 60.0 * t3,
+            -h0,
+        ])
     }
 
     fn speed(&self, t: f32) -> f32 {
         let v = self.velocity(t);
         libm::hypotf(v[0], v[1])
+    }
+
+    fn curvature(&self, t: f32) -> f32 {
+        let (v, a) = (self.velocity(t), self.acceleration(t));
+        let speed = libm::hypotf(v[0], v[1]);
+        if speed <= 0.0 {
+            return 0.0;
+        }
+        (v[0] * a[1] - v[1] * a[0]) / (speed * speed * speed)
     }
 
     /// Arc length between parameters `a` and `b`, by five-point
@@ -225,17 +316,20 @@ impl Hermite {
         let mut table = Table {
             s: [0.0; SAMPLES + 1],
             heading: [0.0; SAMPLES + 1],
+            kappa: [0.0; SAMPLES + 1],
         };
         let direction = |t: f32| {
             let v = self.velocity(t);
             libm::atan2f(v[1], v[0])
         };
         let mut prev = direction(0.0);
+        table.kappa[0] = self.curvature(0.0);
         for i in 1..=SAMPLES {
             let (a, b) = ((i - 1) as f32 / SAMPLES as f32, i as f32 / SAMPLES as f32);
             table.s[i] = table.s[i - 1] + self.arc(a, b);
             let dir = direction(b);
             table.heading[i] = table.heading[i - 1] + wrap(dir - prev);
+            table.kappa[i] = self.curvature(b);
             prev = dir;
         }
         table
@@ -327,7 +421,7 @@ impl RoutePath {
             {
                 path.push(Shape::Straight, chord, &mut wheels, &mut heading);
             } else {
-                let table = Hermite::new(from, to, a0, a1).table();
+                let table = Quintic::new(from, to, a0, a1).table();
                 let length = table.s[SAMPLES];
                 // At most one table per waypoint, so this always fits.
                 let _ = path.tables.push(table);
@@ -421,33 +515,42 @@ impl RoutePath {
 }
 
 impl RoutePath {
-    /// The path cut into spans for the speed planner.
+    /// The path cut into spans for the speed planner, for `profile`.
     ///
     /// Turns in place must start and end at rest. Each curve is cut into
-    /// spans whose limits are scaled by `1 / (1 + |κ|·track / 2)`, with the
-    /// highest curvature `κ` the robot drives in that span, so that the outer
-    /// wheel stays within the profile's limits.
+    /// spans whose limits are scaled so that both wheels stay within the
+    /// profile's speed and acceleration. A wheel rolls `1 ± κ·track / 2` times
+    /// as far as the centre, and where the curvature `κ` changes along the
+    /// path it gains an extra acceleration of `v²·|κ′|·track / 2`. With every
+    /// limit scaled by `f`, the wheel stays within them when
+    /// `f·(1 + |κ|·track / 2) + f²·V²·|κ′|·track / (2·A) ≤ 1`, using the
+    /// highest `κ` and `κ′` in the span and the profile's maximum speed `V`
+    /// and acceleration `A`.
     ///
     /// ```
     /// use capek_core::motion::kinematics::{Differential, Pose};
+    /// use capek_core::motion::profile::Trapezoid;
     /// use capek_core::motion::route::{Route, RoutePath, Waypoint};
     /// use capek_core::units::UnitExt;
     ///
     /// let drive = Differential::new(56.mm(), 159.mm());
+    /// let profile = Trapezoid { max_speed: 400.mm_per_s(), accel: 1200.mm_per_s2() };
     /// let route = Route::from_slice(&[
     ///     Waypoint::at(500.mm(), 0.mm()),
     ///     Waypoint::at(500.mm(), 500.mm()),
     /// ])
     /// .unwrap();
-    /// let spans = RoutePath::new(Pose::ORIGIN, &route, &drive).spans();
+    /// let spans = RoutePath::new(Pose::ORIGIN, &route, &drive).spans(&profile);
     ///
     /// // Straight, stop, turn, stop, straight.
     /// assert_eq!(spans.len(), 3);
     /// assert!(spans[0].rest_after && spans[1].rest_after && !spans[2].rest_after);
     /// ```
-    pub fn spans(&self) -> Vec<Span, MAX_SPANS> {
+    pub fn spans<P: Profile>(&self, profile: &P) -> Vec<Span, MAX_SPANS> {
         let mut spans: Vec<Span, MAX_SPANS> = Vec::new();
         let half_track = self.drive.track.as_mm() / 2.0;
+        let vmax = profile.max_speed().as_mm_per_s();
+        let amax = profile.max_accel().as_mm_per_s2();
         for piece in &self.pieces {
             match piece.shape {
                 Shape::Turn(_) => {
@@ -466,19 +569,19 @@ impl RoutePath {
                     let table = &self.tables[i];
                     let per = SAMPLES / CURVE_SPANS;
                     for k in 0..CURVE_SPANS {
-                        let range = k * per..(k + 1) * per;
-                        let mut kappa: f32 = 0.0;
-                        for j in range.clone() {
-                            let ds = table.s[j + 1] - table.s[j];
-                            if ds > 0.0 {
-                                let dh = table.heading[j + 1] - table.heading[j];
-                                kappa = kappa.max(libm::fabsf(dh / ds));
-                            }
-                        }
-                        let length = table.s[range.end] - table.s[range.start];
+                        let (start, end) = (table.s[k * per], table.s[(k + 1) * per]);
+                        let (kappa, rate) = table.extremes(start, end);
+                        let b = 1.0 + kappa * half_track;
+                        let c = vmax * vmax * rate * half_track / amax;
+                        // The positive root of c·f² + b·f = 1.
+                        let scale = if c > 1e-9 {
+                            (libm::sqrtf(b * b + 4.0 * c) - b) / (2.0 * c)
+                        } else {
+                            1.0 / b
+                        };
                         let _ = spans.push(Span {
-                            scale: 1.0 / (1.0 + kappa * half_track),
-                            ..Span::new(Length::mm(length))
+                            scale,
+                            ..Span::new(Length::mm(end - start))
                         });
                     }
                 }
@@ -678,7 +781,7 @@ mod tests {
 
     #[test]
     fn arc_length_tables_match_numeric_integration() {
-        let h = Hermite::new([0.0, 0.0], [500.0, 300.0], 0.0, 1.5);
+        let h = Quintic::new([0.0, 0.0], [500.0, 300.0], 0.0, 1.5);
         let table = h.table();
         // Simpson's rule with many panels.
         let n = 10_000;

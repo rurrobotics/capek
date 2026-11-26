@@ -108,7 +108,7 @@ capek-core/src/
 │   │   └── scurve.rs SCurve
 │   ├── kinematics.rs Differential, Pose
 │   ├── path.rs       Path<N>; Line, Turn
-│   ├── route.rs      Waypoint, Route, RoutePath, Hermite segments
+│   ├── route.rs      Waypoint, Route, RoutePath, quintic Hermite segments
 │   ├── planner.rs    speed planning along a path
 │   ├── stepgen.rs    StepGen
 │   ├── strategy.rs   StepStrategy: Buffered, Realtime, Precomputed
@@ -591,21 +591,25 @@ pub type Route = heapless::Vec<Waypoint, MAX_WAYPOINTS>;   // 16 by default
 
 - The slope of a waypoint is the heading the robot should have when it passes
   through it.
-- The segment between two waypoints is a cubic Hermite curve whose end
+- The segment between two waypoints is a quintic Hermite curve whose end
   tangents follow the waypoints' slopes. A missing slope takes the direction
   of the straight line between the two waypoints. A segment with no slope at
   either end is therefore exactly a straight line.
+- Curves have zero curvature at both ends, so curvature is continuous at
+  every waypoint, between a curve and a straight line as well as between two
+  curves. A jump in curvature would be a jump in wheel speed.
 - At a waypoint without a slope where the route bends, the robot stops and
   turns in place. A waypoint with a slope is passed smoothly, without stopping.
 - A route starts at the current pose. If the first segment does not leave
   along the current heading, the robot turns in place first.
 - `RoutePath::new(pose, &route, &drive)` turns a route into a `Path<2>` made
   of turns in place, straight lines and curves. Each curved segment gets a
-  small arc-length table: arc length and heading at 33 points along it, by
-  Gauss-Legendre quadrature. Wheel distances follow from those through
-  `Differential::wheels`, and curvature from the change in heading, so
-  `axes(s)` is a lookup with interpolation. `segments()` lists the pieces for
-  the speed planner.
+  small arc-length table: arc length, heading and curvature at 33 points
+  along it, by Gauss-Legendre quadrature. Heading is interpolated with a
+  cubic Hermite in arc length whose slopes are the curvatures, so curvature
+  stays continuous between samples too. Wheel distances follow through
+  `Differential::wheels`, so `axes(s)` is a lookup with interpolation.
+  `segments()` lists the pieces.
 
 ### Speed planning
 
@@ -619,18 +623,22 @@ both wheels within the profile's limits:
    at each sample, given the profile's acceleration and jerk limits.
 4. Let the profile plan each piece between those junction speeds.
 
-In code, `RoutePath::spans()` cuts the path into `Span`s: one per straight and
-turn, and eight per curve, each with `scale = 1 / (1 + |κ|max·track / 2)`.
-Turns must start and end at rest. `plan_speeds` sets each junction to the
+In code, `RoutePath::spans(&profile)` cuts the path into `Span`s: one per
+straight and turn, and eight per curve. Turns must start and end at rest. On a
+curve a wheel rolls `1 ± κ·track / 2` times as far as the centre, and where
+curvature changes along the path it gains an extra `v²·|κ′|·track / 2` of
+acceleration. With every limit scaled by `f`, both wheels stay within the
+profile's speed `V` and acceleration `A` when
+`f·(1 + |κ|·track / 2) + f²·V²·|κ′|·track / (2·A) ≤ 1`, so each curve span's
+`scale` is the root of that, with the highest `κ` and `κ′` in the span. `plan_speeds` sets each junction to the
 lower cruise speed of its two spans, then runs the backward and forward passes
 with each span's `profile.scaled(scale).reachable(...)`. Each resulting
 `Piece` is planned with `profile.scaled(piece.scale).plan(...)`.
 
-Profile limits are therefore real wheel speed limits, for straight lines, turns
-and curves alike. Wheel acceleration is not yet limited on routes: Hermite
-segments only match heading at joints, so curvature jumps where a straight
-meets a curve and wheel speeds step there. Making routes curvature-continuous
-and capping speed where curvature changes is planned below.
+Profile speed and acceleration limits are therefore real wheel limits, for
+straight lines, turns and curves alike. Jerk is not scaled for the change in
+curvature, so with `SCurve` a wheel's jerk can exceed the limit on tight
+curves.
 
 ### Step generation
 
@@ -859,7 +867,7 @@ as work progresses.
 - [x] `feat(core): add Path trait with line and turn`
 - [x] `feat(core): add waypoint routes with slopes`
 - [x] `feat(core): add curvature-aware speed planner`
-- [ ] `feat(core): make routes curvature-continuous`
+- [x] `feat(core): make routes curvature-continuous`
 - [ ] `feat(core): add time-sliced step generator`
 - [ ] `feat(core): add driver traits and the Platform contract`
 - [ ] `feat(core): add Stepper and Servo components`
