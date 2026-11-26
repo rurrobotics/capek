@@ -23,8 +23,8 @@ Read both before working.
 
 ## Code rules
 
-- `capek-core` must never depend on a chip HAL (`embassy-rp` or similar). It has
-  to build and test on the host.
+- `capek-core` and `capek-contrib` must never depend on a chip HAL
+  (`embassy-rp` or similar). They have to build and test on the host.
 - Everything outside tests is `no_std`. No heap allocation; use `heapless` when
   a collection is needed.
 - Use `f32`, not `f64`. The RP2040 has no FPU and the RP2350 only has an f32 FPU.

@@ -20,11 +20,12 @@ commit as the code that depends on it.
 8. [Motion control](#motion-control)
 9. [The `robot!` macro](#the-robot-macro)
 10. [Link](#link)
-11. [Extending capek](#extending-capek)
-12. [Coming from ninja](#coming-from-ninja)
-13. [Plan of action](#plan-of-action)
-14. [Testing](#testing)
-15. [Open points and assumptions](#open-points-and-assumptions)
+11. [Firmware updates](#firmware-updates)
+12. [Extending capek](#extending-capek)
+13. [Coming from ninja](#coming-from-ninja)
+14. [Plan of action](#plan-of-action)
+15. [Testing](#testing)
+16. [Open points and assumptions](#open-points-and-assumptions)
 
 ## Background
 
@@ -81,9 +82,15 @@ wired where, plus the strategy code.
 | `capek-rp` | RP2040 and RP2350 platform: drivers, chip setup, resource allocation, USB transport. | no |
 | `capek-macros` | `robot!` and `#[capek::main]`. | yes |
 | `capek-proto` | Wire types shared by firmware and host controllers. | yes |
+| `capek-contrib` | Opt-in utilities that do not belong in the core, each behind a feature. First: OTA firmware updates. No chip HAL. | yes |
 
 Further platforms, such as `capek-stm32` or `capek-esp`, are added as crates of
 their own, next to `capek-rp`.
+
+`capek-contrib` follows the same rules as `capek-core`: no chip HAL, and it
+builds and tests on the host. `capek` re-exports it as `capek::contrib` when
+the matching feature, such as `ota`, is enabled, so generated code still only
+names paths under `::capek`.
 
 Target layout of `capek-core`:
 
@@ -134,8 +141,9 @@ capek/src/            facade: platform selection, component aliases, prelude
 capek-rp/src/         Rp (impl Platform), RpCtx, chip setup, PioStepDir, PioFourWire,
                       PwmServo, PulseTimer, GPIO, UsbSerial
 capek-macros/src/     robot! parser and expansion, #[capek::main]
-capek-proto/src/      Envelope, Response, framing constants
-examples/             ninja (RP2350) and hybrid (RP2040)
+capek-proto/src/      Envelope, Response, firmware update messages, framing constants
+capek-contrib/src/    ota: update Receiver over FirmwareUpdater, TCP server
+examples/             ninja (RP2350) and hybrid (RP2040), bootloaders for both chips
 ```
 
 ## Platforms, components and drivers
@@ -867,6 +875,68 @@ pub enum RobotCommand {
 The host controller depends on the same types through `capek-proto`, which
 replaces ninja's `include!` of the firmware's packet file.
 
+## Firmware updates
+
+A robot can be updated over Wi-Fi without a cable, using
+[embassy-boot](https://github.com/embassy-rs/embassy/tree/main/embassy-boot).
+The feature is opt-in: it lives in `capek_contrib::ota`, behind the `ota`
+feature.
+
+### Flash layout
+
+The flash is split into four partitions, declared in the linker script:
+
+| Partition | Holds |
+|---|---|
+| `BOOTLOADER` | the embassy-boot bootloader, flashed once by cable |
+| `ACTIVE` | the running firmware |
+| `DFU` | the incoming image; one page larger than `ACTIVE` |
+| `STATE` | the bootloader's swap state |
+
+An update is written into `DFU` while the robot keeps running. After a reset,
+the bootloader swaps `DFU` into `ACTIVE` and starts the new firmware. If the
+new firmware does not call `mark_booted`, the next reset swaps the old one
+back, so a broken image rolls back by itself.
+
+### Receiving an image
+
+```rust
+pub enum UpdateMessage<'a> {
+    Begin { len: u32 },
+    Chunk { offset: u32, bytes: &'a [u8] },
+    Finish,
+}
+```
+
+- `Receiver` is a plain state machine, fed one `UpdateMessage` at a time. It
+  writes through embassy-boot's `FirmwareUpdater` into any `NorFlash`, so it
+  is tested on the host with a mock flash.
+- It rejects chunks that are out of order, an image longer than `DFU`, and a
+  `Finish` before every byte has arrived.
+- With signing enabled, `Finish` checks the image's ed25519 signature through
+  embassy-boot before marking it for the swap. Anyone on the network could
+  otherwise flash the robot.
+- `serve(stack, receiver, reset)` is the task around it. It listens on a TCP
+  port of an `embassy_net::Stack`, decodes `capek-proto` frames into the
+  receiver, and after a successful `Finish` marks the update and resets
+  through the platform's reset.
+- The message types live in `capek-proto`, so the host update tool and the
+  firmware share them, as with the link.
+
+### Platform side
+
+On RP, the Pico W and Pico 2W reach Wi-Fi through a cyw43 chip on a PIO SPI
+bus, which takes one state machine and one DMA channel from `RpCtx`.
+`capek-rp` builds the network stack and supplies, through `embassy-boot-rp`,
+the partitions read from the linker script, a `WatchdogFlash` and the reset.
+The examples include a ready bootloader for each chip.
+
+### Confirming a boot
+
+When `robot!` contains an `ota:` block, `#[capek::main]` spawns the update
+server and calls `mark_booted` once `init` has succeeded. A firmware that
+panics before that point rolls back on the next reset.
+
 ## Extending capek
 
 | You want to… | Do this |
@@ -982,7 +1052,20 @@ as work progresses.
 - [ ] `feat(macros): generate RobotCommand`
 - [ ] `feat(proto): add host controller example`
 
-### M6: Port ninja
+### M6: Wi-Fi and OTA updates
+
+- [ ] `chore: add capek-contrib crate`
+- [ ] `feat(proto): add firmware update messages`
+- [ ] `feat(contrib): add firmware update receiver`
+- [ ] `feat(contrib): verify signed firmware images`
+- [ ] `feat(rp): add cyw43 Wi-Fi and network stack`
+- [ ] `feat(contrib): serve firmware updates over TCP`
+- [ ] `feat(rp): add flash partitions and reset for updates`
+- [ ] `feat(examples): add bootloaders for RP2040 and RP2350`
+- [ ] `feat(macros): add ota block to robot!`
+- [ ] `feat(proto): add host update tool example`
+
+### M7: Port ninja
 
 - [ ] `feat(core): add sequence and match clock behaviours`
 - [ ] `feat(examples): port ninja to capek`
@@ -995,7 +1078,7 @@ as work progresses.
   needs a different period.
 - Following routes in reverse.
 - Blending separate commands without stopping between them.
-- Wi-Fi link through cyw43 and embassy-net.
+- The command link over Wi-Fi, on the network stack from M6.
 - DC motors with encoders and a PID velocity loop.
 - IMU and other I2C sensors.
 - A `cargo-generate` project template.
@@ -1027,6 +1110,9 @@ Host tests, run with `cargo test -p capek-core`:
   strategies end at the same position.
 - **Drivetrain with mock drivers:** stopping mid-route and starting again
   completes the whole route, and odometry ends at the last waypoint.
+- **Update receiver with a mock flash:** a full image lands in `DFU` byte for
+  byte, out-of-order chunks, oversized images and early `Finish` are rejected,
+  and an image with a bad signature is never marked for the swap.
 
 CI runs formatting, clippy with warnings as errors, the tests, and cross-builds
 for `thumbv6m-none-eabi` and `thumbv8m.main-none-eabihf`.
@@ -1035,6 +1121,10 @@ On hardware: block the ultrasonic sensor in the middle of a straight move and
 in the middle of a curved route. The robot should decelerate, wait, resume and
 still end on its mark. Compare the end positions of the three strategies, and
 run the same strategy with a step/dir and a four-wire stepper.
+
+For updates: push an image over Wi-Fi and confirm the robot comes back on the
+new firmware, then push one that never calls `mark_booted` and confirm it rolls
+back after the next reset.
 
 ## Open points and assumptions
 
@@ -1048,3 +1138,12 @@ run the same strategy with a step/dir and a four-wire stepper.
   one `match` per DMA chunk. This is to be confirmed in M2.
 - How the compile-time resource check is expressed generically, so the macro
   stays platform-neutral, is to be settled in M2 and M4.
+- The embassy-boot and embassy-boot-rp releases must pair with embassy-rp
+  0.10, and their shared dependencies go in `[workspace.dependencies]`.
+  Whether embassy-boot-rp supports the RP2350 is to be confirmed in M6.
+- Whether the update flash joins the `Platform` contract or stays an RP-side
+  helper is to be settled in M6.
+- Wi-Fi credentials most likely go in a `wifi:` block in `robot!`. This is to
+  be settled in M6.
+- `DFU` must hold a full image, so updates roughly halve the flash available
+  to the firmware. This is to be checked against the 2 MB and 4 MB boards.

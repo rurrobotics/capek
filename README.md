@@ -35,6 +35,7 @@ control come from the framework.
 | `capek-rp` | RP2040/RP2350 platform: the drivers behind the components. | no |
 | `capek-macros` | `robot!` and `#[capek::main]`. | yes |
 | `capek-proto` | Wire types shared by the firmware and host-side controllers. | yes |
+| `capek-contrib` | Opt-in utilities that do not belong in the core, such as OTA firmware updates. No chip HAL. | yes |
 
 `capek-core` is deliberately free of any chip HAL. Motion math, filters and
 components can be unit-tested on a PC, and a new chip family only needs a new
@@ -177,7 +178,8 @@ by hand.
 - [ ] **M3** Command mutexes, step strategies and components
 - [ ] **M4** `robot!` and `#[capek::main]`
 - [ ] **M5** Link: transport trait, USB serial, `capek-proto`
-- [ ] **M6** Port ninja to capek
+- [ ] **M6** Wi-Fi and OTA updates: `capek-contrib`, embassy-boot
+- [ ] **M7** Port ninja to capek
 
 ## Development
 
