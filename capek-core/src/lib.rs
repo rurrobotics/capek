@@ -10,9 +10,15 @@
 #![cfg_attr(not(test), no_std)]
 #![warn(missing_docs)]
 
+pub mod components;
 pub mod driver;
 pub mod filter;
 pub mod motion;
 pub mod pid;
 pub mod platform;
 pub mod units;
+
+#[cfg(test)]
+mod mock;
+
+pub use components::{Servo, Stepper};

@@ -154,6 +154,12 @@ hardware:
 - an `Hcsr04` ultrasonic sensor knows its trigger pulse, the speed of sound,
   its range and its timeout, and turns an echo time into a distance.
 
+A component is built from its driver and a config struct with defaults, such
+as `Stepper::new(driver, StepperConfig { steps_per_rev: 400, ..Default::default() })`,
+which is what the macro writes for a block. Core has no clock, so a component
+that takes time to finish says how long instead of waiting: `Servo::set`
+returns the travel time.
+
 A **driver** is the hardware primitive behind a component, supplied by the
 platform. It is kept as small as possible:
 
@@ -923,7 +929,7 @@ as work progresses.
 - [x] `feat(core): make routes curvature-continuous`
 - [x] `feat(core): add time-sliced step generator`
 - [x] `feat(core): add driver traits and the Platform contract`
-- [ ] `feat(core): add Stepper and Servo components`
+- [x] `feat(core): add Stepper and Servo components`
 - [ ] `feat(core): add button, output and HC-SR04 components`
 - [ ] `feat(core): add sensor triggers`
 
